@@ -1,134 +1,15 @@
 "use client";
-
-import { useState } from "react";
-import { Canvas } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
-
-type Vec3 = [number, number, number];
-
-function Shelf({ position }: { position: Vec3 }) {
-  return (
-    <group position={position}>
-      {[-0.9, 0.9].map((x) => (
-        <mesh key={x} position={[x, 0.9, 0]}>
-          <boxGeometry args={[0.08, 1.8, 0.72]} />
-          <meshStandardMaterial color="#777b7c" metalness={0.25} roughness={0.55} />
-        </mesh>
-      ))}
-      {[0.35, 0.8, 1.25, 1.7].map((y) => (
-        <mesh key={y} position={[0, y, 0]}>
-          <boxGeometry args={[1.9, 0.07, 0.82]} />
-          <meshStandardMaterial color="#d8d5ce" roughness={0.65} />
-        </mesh>
-      ))}
-      {Array.from({ length: 18 }, (_, index) => {
-        const column = index % 9;
-        const row = Math.floor(index / 9);
-        const colors = ["#c78d4b", "#799d79", "#bd6c60", "#d8c16a", "#7c91b2"];
-        return (
-          <mesh
-            key={index}
-            position={[-0.78 + column * 0.195, 0.53 + row * 0.45, 0.08]}
-            castShadow
-          >
-            <boxGeometry args={[0.14, 0.27, 0.25]} />
-            <meshStandardMaterial color={colors[index % colors.length]} roughness={0.48} />
-          </mesh>
-        );
-      })}
-    </group>
-  );
-}
-
-function InteractiveDrawer() {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <group position={[3.1, 0, 0.6]}>
-      <mesh position={[0, 0.72, 0]} castShadow>
-        <boxGeometry args={[1.5, 1.44, 0.95]} />
-        <meshStandardMaterial color="#82796e" roughness={0.72} />
-      </mesh>
-      <group
-        position={[0, 0.86, open ? 0.85 : 0.42]}
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen((value) => !value);
-        }}
-      >
-        <mesh castShadow>
-          <boxGeometry args={[1.22, 0.3, 0.7]} />
-          <meshStandardMaterial color={open ? "#d9c5a7" : "#b3a087"} />
-        </mesh>
-        {open &&
-          Array.from({ length: 4 }, (_, index) => (
-            <mesh key={index} position={[-0.42 + index * 0.28, 0.19, 0]}>
-              <cylinderGeometry args={[0.07, 0.07, 0.22, 16]} />
-              <meshStandardMaterial color={["#d4a14e", "#799b7a"][index % 2]} />
-            </mesh>
-          ))}
-      </group>
-    </group>
-  );
-}
-
-function StoreScene() {
-  return (
-    <>
-      <color attach="background" args={["#e9e7e1"]} />
-      <ambientLight intensity={1.15} />
-      <hemisphereLight args={["#ffffff", "#b9b3a8", 1.2]} />
-      <directionalLight
-        position={[6, 10, 5]}
-        intensity={2.1}
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-      />
-
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06, 0]} receiveShadow>
-        <planeGeometry args={[32, 32]} />
-        <meshStandardMaterial color="#c9c7c0" roughness={0.9} />
-      </mesh>
-
-      <mesh position={[0, 2.5, -5]} receiveShadow>
-        <boxGeometry args={[14, 5, 0.18]} />
-        <meshStandardMaterial color="#f4f1ea" />
-      </mesh>
-
-      <Shelf position={[-3.1, 0, -2.1]} />
-      <Shelf position={[-3.1, 0, 1.5]} />
-      <Shelf position={[0, 0, -2.1]} />
-      <Shelf position={[0, 0, 1.5]} />
-      <InteractiveDrawer />
-
-      <OrbitControls
-        makeDefault
-        target={[0, 1, 0]}
-        minDistance={3}
-        maxDistance={17}
-        maxPolarAngle={Math.PI / 2 - 0.04}
-        enableDamping
-        dampingFactor={0.08}
-      />
-    </>
-  );
-}
-
-export default function VirtualStore() {
-  return (
-    <div className="virtual-store-canvas" aria-label="Interactive 3D supermarket prototype">
-      <Canvas
-        shadows
-        dpr={[1, 1.5]}
-        camera={{ position: [8, 6, 10], fov: 42, near: 0.1, far: 100 }}
-        gl={{ antialias: true, powerPreference: "high-performance" }}
-      >
-        <StoreScene />
-      </Canvas>
-      <div className="scene-hint">
-        Drag to look around · Scroll to zoom · Click the cabinet drawer
-      </div>
-    </div>
-  );
-}
+import {useCallback,useEffect,useState} from "react";
+import {Canvas} from "@react-three/fiber";
+import {Html,OrbitControls} from "@react-three/drei";
+import {api,getSessionId,type Product} from "@/lib/commerce";
+type Placed={placement_id:string;product_id:string;sku:string;name:string;price:string;color:string;stock_quantity:number;shelf_level:number;slot:number};
+type Fixture={id:string;code:string;name:string;position:number[];products:Placed[]};type Layout={items:Fixture[];total:number};
+function Shelf({fixture,onSelect}:{fixture:Fixture;onSelect:(id:string)=>void}){return <group position={fixture.position as [number,number,number]}>{[-.9,.9].map(x=><mesh key={x} position={[x,.9,0]} castShadow><boxGeometry args={[.08,1.8,.72]}/><meshStandardMaterial color="#777b7c" metalness={.25} roughness={.55}/></mesh>)}{[.35,.8,1.25,1.7].map(y=><mesh key={y} position={[0,y,0]}><boxGeometry args={[1.9,.07,.82]}/><meshStandardMaterial color="#d8d5ce"/></mesh>)}{fixture.products.map((p,i)=><group key={p.placement_id} position={[-.72+(i%6)*.28,.48+Math.min(2,p.shelf_level)*.42,.14]} onClick={e=>{e.stopPropagation();onSelect(p.product_id)}}><mesh castShadow><boxGeometry args={[.21,.28,.25]}/><meshStandardMaterial color={p.color||"#799d79"}/></mesh><mesh position={[0,0,.131]}><boxGeometry args={[.13,.08,.008]}/><meshStandardMaterial color="#f7f3e8"/></mesh><Html distanceFactor={9} position={[0,.25,.1]} center style={{pointerEvents:"none"}}><div className="product-hotspot-label">{p.name}<br/>{p.price} RWF</div></Html></group>)}</group>}
+function Drawer(){const [open,setOpen]=useState(false);return <group position={[3.1,0,.6]}><mesh position={[0,.72,0]} castShadow><boxGeometry args={[1.5,1.44,.95]}/><meshStandardMaterial color="#82796e"/></mesh><group position={[0,.86,open?.85:.42]} onClick={e=>{e.stopPropagation();setOpen(v=>!v)}}><mesh castShadow><boxGeometry args={[1.22,.3,.7]}/><meshStandardMaterial color={open?"#d9c5a7":"#b3a087"}/></mesh>{open&&Array.from({length:4},(_,i)=><mesh key={i} position={[-.42+i*.28,.19,0]}><cylinderGeometry args={[.07,.07,.22,16]}/><meshStandardMaterial color={i%2?"#799b7a":"#d4a14e"}/></mesh>)}</group></group>}
+function Scene({layout,onSelect}:{layout:Layout;onSelect:(id:string)=>void}){return <><color attach="background" args={["#e9e7e1"]}/><ambientLight intensity={1.15}/><hemisphereLight args={["#fff","#b9b3a8",1.2]}/><directionalLight position={[6,10,5]} intensity={2.1} castShadow/><mesh rotation={[-Math.PI/2,0,0]} position={[0,-.06,0]} receiveShadow><planeGeometry args={[32,32]}/><meshStandardMaterial color="#c9c7c0"/></mesh><mesh position={[0,2.5,-5]}><boxGeometry args={[14,5,.18]}/><meshStandardMaterial color="#f4f1ea"/></mesh>{layout.items.map(f=><Shelf key={f.id} fixture={f} onSelect={onSelect}/>)}<Drawer/><OrbitControls makeDefault target={[0,1,0]} minDistance={3} maxDistance={17} maxPolarAngle={Math.PI/2-.04} enableDamping dampingFactor={.08}/></>}
+export default function VirtualStore(){const [layout,setLayout]=useState<Layout>({items:[],total:0}),[products,setProducts]=useState<Product[]>([]),[selected,setSelected]=useState<Product|null>(null),[message,setMessage]=useState("Loading store layout…"),[adding,setAdding]=useState(false);
+useEffect(()=>{Promise.all([api<Layout>("/api/v1/store-layout"),api<{items:Product[]}>("/api/v1/products")]).then(([l,p])=>{setLayout(l);setProducts(p.items);setMessage("")}).catch((e:Error)=>setMessage(`Cannot load 3D store: ${e.message}. Start FastAPI on port 8000.`))},[]);
+const select=useCallback((id:string)=>{const p=products.find(x=>x.id===id);if(p)setSelected(p)},[products]);
+async function add(){if(!selected||adding)return;setAdding(true);try{const r=await api<{item_count:number}>(`/api/v1/cart/items?session_id=${encodeURIComponent(getSessionId())}`,{method:"POST",body:JSON.stringify({product_id:selected.id,quantity:1})});setMessage(`${selected.name} added to the shared basket (${r.item_count} item(s)).`);setSelected(null)}catch(e){setMessage((e as Error).message)}finally{setAdding(false)}}
+return <div className="virtual-store-frame"><div className="virtual-store-canvas" aria-label="Interactive 3D supermarket; click products to add them to your basket"><Canvas shadows dpr={[1,1.5]} camera={{position:[8,6,10],fov:42,near:.1,far:100}} gl={{antialias:true,powerPreference:"high-performance"}}><Scene layout={layout} onSelect={select}/></Canvas><div className="scene-hint">Drag to look around · Scroll to zoom · Click a product to inspect it</div>{selected&&<div className="scene-product-card"><button type="button" className="scene-product-close" onClick={()=>setSelected(null)} aria-label="Close product details">×</button><span className="scene-product-swatch" style={{background:selected.color}}/><div><strong>{selected.name}</strong><p>{new Intl.NumberFormat("en-RW",{style:"currency",currency:selected.currency,maximumFractionDigits:0}).format(Number(selected.price))}</p><small>{selected.stock_quantity} in stock</small></div><button className="scene-add-button" type="button" onClick={add} disabled={adding||selected.stock_quantity<1}>{adding?"Adding…":"Add +"}</button></div>}</div>{message&&<p className="store-feedback" role="status">{message}</p>}</div>}
