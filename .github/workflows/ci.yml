@@ -18,6 +18,10 @@ jobs:
           cache-dependency-path: apps/api/requirements.txt
       - name: Install API dependencies
         run: python -m pip install -r apps/api/requirements.txt
+      - name: Verify database migration
+        env:
+          PYTHONPATH: apps/api
+        run: alembic -c apps/api/alembic.ini upgrade head
       - name: Run API tests
         env:
           PYTHONPATH: apps/api
