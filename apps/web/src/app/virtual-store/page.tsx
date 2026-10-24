@@ -13,10 +13,10 @@ export default function VirtualStorePage() {
         <Link className="back-link" href="/">← Back to store</Link>
         <p className="eyebrow">EARLY ACCESS · 3D STORE</p>
         <h1>Walk the aisles.<br /><span>Discover something new.</span></h1>
-        <p className="page-intro">Explore our first interactive supermarket prototype. Drag to look around, zoom to inspect the layout, and click the cabinet drawer to reveal its contents.</p>
+        <p className="page-intro">Explore the live product layout. Drag to look around, zoom to inspect the shelves, and select a product to add it to your shared basket.</p>
       </header>
       <VirtualStore />
-      <p className="prototype-note">Prototype notice: products and inventory in this scene are illustrative placeholders. No purchases or payments are processed yet.</p>
+      <p className="prototype-note">Products, prices and stock are loaded from the commerce API and shared with the catalogue. Checkout and payment confirmation run in a local sandbox only, with no real money charged.</p><p className="prototype-note"><Link href="/shop">Prefer the conventional catalogue? Shop here →</Link></p>
     </main>
   );
 }
