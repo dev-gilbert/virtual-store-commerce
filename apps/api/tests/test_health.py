@@ -43,3 +43,17 @@ def test_admin_key_required_and_product_creation(client):
     assert r.status_code==201 and r.json()["stock_quantity"]==5
     layout=client.get("/api/v1/store-layout").json()
     assert any(any(p["product_id"]==r.json()["id"] for p in f["products"]) for f in layout["items"])
+
+def test_cancelling_unpaid_order_releases_reserved_stock(client):
+    session=f"cancel-session-{uuid4()}"
+    product=client.get("/api/v1/products").json()["items"][0]
+    original_stock=product["stock_quantity"]
+    assert client.post(f"/api/v1/cart/items?session_id={session}",json={"product_id":product["id"],"quantity":1}).status_code==200
+    order=client.post("/api/v1/checkout",headers={"Idempotency-Key":f"cancel-key-{uuid4()}"},
+                      json={"session_id":session}).json()
+    after_reservation=client.get(f"/api/v1/products/{product['id']}").json()["stock_quantity"]
+    assert after_reservation==original_stock-1
+    cancelled=client.post(f"/api/v1/orders/{order['id']}/cancel")
+    assert cancelled.status_code==200 and cancelled.json()["status"]=="cancelled"
+    restored=client.get(f"/api/v1/products/{product['id']}").json()["stock_quantity"]
+    assert restored==original_stock
