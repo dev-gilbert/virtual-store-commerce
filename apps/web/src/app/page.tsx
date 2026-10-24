@@ -11,7 +11,7 @@ export default function Home() {
     <main className="home-shell">
       <nav className="top-nav">
         <Link href="/" className="brand-mark"><span className="brand-icon">v</span><span>virtual<span className="brand-light">store</span></span></Link>
-        <div className="nav-links"><Link href="#how-it-works">How it works</Link><Link href="/virtual-store">3D store</Link></div>
+        <div className="nav-links"><Link href="#how-it-works">How it works</Link><Link href="/shop">Shop catalogue</Link><Link href="/virtual-store">3D store</Link></div>
         <Link href="/virtual-store" className="nav-cta">Explore store <span aria-hidden="true">↗</span></Link>
       </nav>
 
@@ -20,7 +20,7 @@ export default function Home() {
           <p className="eyebrow"><span className="status-dot" /> A new dimension of shopping</p>
           <h1>Your next shop.<br /><span>In a whole new space.</span></h1>
           <p className="hero-description">A more human way to shop online. Explore a virtual supermarket, discover products in context, or take the fast lane through a familiar product catalogue.</p>
-          <div className="hero-actions"><Link href="/virtual-store" className="button-primary">Enter the 3D store <span aria-hidden="true">→</span></Link><Link href="#how-it-works" className="button-secondary">See how it works</Link></div>
+          <div className="hero-actions"><Link href="/virtual-store" className="button-primary">Enter the 3D store <span aria-hidden="true">→</span></Link><Link href="/shop" className="button-secondary">Shop catalogue</Link></div>
           <p className="hero-footnote">Early prototype · Built for the web · More to come</p>
         </div>
         <Link href="/virtual-store" className="hero-visual" aria-label="Explore the interactive 3D store">
@@ -44,7 +44,7 @@ export default function Home() {
       </section>
 
       <section className="bottom-cta"><div><p className="eyebrow">THE FIRST AISLE IS OPEN</p><h2>Curiosity looks good on you.</h2></div><Link href="/virtual-store" className="button-primary">Explore the prototype <span aria-hidden="true">→</span></Link></section>
-      <footer className="site-footer"><Link href="/" className="brand-mark"><span className="brand-icon">v</span><span>virtual<span className="brand-light">store</span></span></Link><p>Original concept. Early prototype. Built for better ways to shop.</p><span>© 2026 Virtual Store Commerce</span></footer>
+      <footer className="site-footer"><Link href="/" className="brand-mark"><span className="brand-icon">v</span><span>virtual<span className="brand-light">store</span></span></Link><p>Original concept. Early prototype. Built for better ways to shop.</p><span><Link href="/admin">Retailer admin</Link> · © 2026 Virtual Store Commerce</span></footer>
     </main>
   );
 }
