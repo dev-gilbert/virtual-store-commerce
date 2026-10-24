@@ -1,4 +1,7 @@
 # Python
+*.db
+*.sqlite
+*.sqlite3
 .venv/
 venv/
 __pycache__/
