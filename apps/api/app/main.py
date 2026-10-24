@@ -211,7 +211,12 @@ def require_admin(x_admin_key:str|None=Header(default=None,alias="X-Admin-Key"))
 def create_product(payload:ProductCreate,db:Session=Depends(get_db)):
  p=Product(**payload.model_dump()); db.add(p)
  try:
-  db.flush(); audit(db,"PRODUCT_CREATED","product",p.id,f'{{"sku":"{p.sku}"}}'); db.commit(); db.refresh(p)
+  db.flush()
+  fixtures=list(db.scalars(select(Fixture).order_by(Fixture.code)))
+  if fixtures:
+   fixture=fixtures[0]; placements=list(db.scalars(select(ProductPlacement).where(ProductPlacement.fixture_id==fixture.id))); slot=len(placements)
+   db.add(ProductPlacement(product_id=p.id,fixture_id=fixture.id,shelf_level=(slot//6)%3,slot=slot%6))
+  audit(db,"PRODUCT_CREATED","product",p.id,f'{{"sku":"{p.sku}"}}'); db.commit(); db.refresh(p)
  except IntegrityError: db.rollback(); raise HTTPException(409,"That SKU already exists")
  return p
 @app.patch("/api/v1/admin/products/{product_id}",response_model=ProductOut,tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
