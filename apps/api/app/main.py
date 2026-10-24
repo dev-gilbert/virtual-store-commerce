@@ -214,7 +214,7 @@ def create_product(payload:ProductCreate,db:Session=Depends(get_db)):
   db.flush()
   fixtures=list(db.scalars(select(Fixture).order_by(Fixture.code)))
   if fixtures:
-   fixture=fixtures[0]; placements=list(db.scalars(select(ProductPlacement).where(ProductPlacement.fixture_id==fixture.id))); slot=len(placements)
+   all_placements=list(db.scalars(select(ProductPlacement.id))); fixture=fixtures[len(all_placements)%len(fixtures)]; placements=list(db.scalars(select(ProductPlacement).where(ProductPlacement.fixture_id==fixture.id))); slot=len(placements)
    db.add(ProductPlacement(product_id=p.id,fixture_id=fixture.id,shelf_level=(slot//6)%3,slot=slot%6))
   audit(db,"PRODUCT_CREATED","product",p.id,f'{{"sku":"{p.sku}"}}'); db.commit(); db.refresh(p)
  except IntegrityError: db.rollback(); raise HTTPException(409,"That SKU already exists")
