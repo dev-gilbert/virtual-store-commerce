@@ -7,7 +7,7 @@ export default function ShopExperience(){
  const [products,setProducts]=useState<Product[]>([]),[cart,setCart]=useState<Cart|null>(null),[query,setQuery]=useState(""),[category,setCategory]=useState("All"),[message,setMessage]=useState(""),[busy,setBusy]=useState(false),[order,setOrder]=useState<{id:string;subtotal:string;currency:string}|null>(null),[payment,setPayment]=useState("");
  const refreshCart=useCallback(async()=>setCart(await api<Cart>(`/api/v1/cart?session_id=${encodeURIComponent(getSessionId())}`)),[]);
  const refreshProducts=useCallback(async()=>setProducts((await api<{items:Product[]}>("/api/v1/products")).items),[]);
- useEffect(()=>{Promise.all([refreshCart(),refreshProducts()]).catch((e:Error)=>setMessage(`Cannot connect to API: ${e.message}. Start FastAPI on port 8000.`))},[refreshCart,refreshProducts]);
+ useEffect(()=>{Promise.resolve().then(()=>Promise.all([refreshCart(),refreshProducts()])).catch((e:Error)=>setMessage(`Cannot connect to API: ${e.message}. Start FastAPI on port 8000.`))},[refreshCart,refreshProducts]);
  const categories=useMemo(()=>["All",...Array.from(new Set(products.map(p=>p.category)))],[products]);
  const visible=products.filter(p=>(category==="All"||category===p.category)&&`${p.name} ${p.description} ${p.sku}`.toLowerCase().includes(query.toLowerCase()));
  async function add(p:Product){try{setCart(await api<Cart>(`/api/v1/cart/items?session_id=${encodeURIComponent(getSessionId())}`,{method:"POST",body:JSON.stringify({product_id:p.id,quantity:1})}));setMessage(`${p.name} added to your shared basket.`)}catch(e){setMessage((e as Error).message)}}
