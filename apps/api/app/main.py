@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, uuid, hmac, hashlib, secrets, base64, time, smtplib
+import os, uuid, hmac, hashlib, secrets, base64, time, smtplib, contextvars
 from decimal import InvalidOperation
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -9,7 +9,7 @@ from typing import Generator
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, create_engine, select, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, create_engine, select, func, event, with_loader_criteria
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
@@ -37,19 +37,19 @@ class Fixture(Base):
  __tablename__="fixtures"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
  code:Mapped[str]=mapped_column(String(80),unique=True); name:Mapped[str]=mapped_column(String(160)); kind:Mapped[str]=mapped_column(String(40),default="shelf")
- x:Mapped[float]=mapped_column(Numeric(8,3),default=0); y:Mapped[float]=mapped_column(Numeric(8,3),default=0); z:Mapped[float]=mapped_column(Numeric(8,3),default=0)
+ x:Mapped[float]=mapped_column(Numeric(8,3),default=0); y:Mapped[float]=mapped_column(Numeric(8,3),default=0); z:Mapped[float]=mapped_column(Numeric(8,3),default=0); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 class ProductPlacement(Base):
  __tablename__="product_placements"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
  product_id:Mapped[str]=mapped_column(ForeignKey("products.id",ondelete="CASCADE"),index=True); fixture_id:Mapped[str]=mapped_column(ForeignKey("fixtures.id",ondelete="CASCADE"),index=True)
- shelf_level:Mapped[int]=mapped_column(Integer,default=0); slot:Mapped[int]=mapped_column(Integer,default=0)
+ shelf_level:Mapped[int]=mapped_column(Integer,default=0); slot:Mapped[int]=mapped_column(Integer,default=0); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
  product:Mapped[Product]=relationship()
  __table_args__=(UniqueConstraint("product_id","fixture_id","shelf_level","slot",name="uq_product_fixture_slot"),)
 class CartItem(Base):
  __tablename__="cart_items"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
  session_id:Mapped[str]=mapped_column(String(100),index=True); product_id:Mapped[str]=mapped_column(ForeignKey("products.id",ondelete="CASCADE"),index=True)
- quantity:Mapped[int]=mapped_column(Integer,default=1); product:Mapped[Product]=relationship()
+ quantity:Mapped[int]=mapped_column(Integer,default=1); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True); product:Mapped[Product]=relationship()
  __table_args__=(UniqueConstraint("session_id","product_id",name="uq_cart_session_product"),)
 class Order(Base):
  __tablename__="orders"
@@ -59,7 +59,7 @@ class Order(Base):
  subtotal:Mapped[Decimal]=mapped_column(Numeric(12,2)); currency:Mapped[str]=mapped_column(String(3),default="RWF")
  customer_name:Mapped[str|None]=mapped_column(String(180),nullable=True); customer_phone:Mapped[str]=mapped_column(String(40),default="")
  customer_email:Mapped[str|None]=mapped_column(String(254),nullable=True); delivery_address:Mapped[str|None]=mapped_column(Text,nullable=True)
- delivery_instructions:Mapped[str|None]=mapped_column(Text,nullable=True); is_anonymous:Mapped[bool]=mapped_column(Boolean,default=False)
+ delivery_instructions:Mapped[str|None]=mapped_column(Text,nullable=True); is_anonymous:Mapped[bool]=mapped_column(Boolean,default=False); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
  items:Mapped[list["OrderItem"]]=relationship(back_populates="order",cascade="all, delete-orphan")
 class OrderItem(Base):
@@ -74,7 +74,7 @@ class SearchEvent(Base):
  query:Mapped[str]=mapped_column(String(180),index=True)
  result_count:Mapped[int]=mapped_column(Integer,default=0)
  session_id:Mapped[str|None]=mapped_column(String(100),nullable=True,index=True)
- created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 class ProductReview(Base):
  __tablename__="product_reviews"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
@@ -83,19 +83,21 @@ class ProductReview(Base):
  rating:Mapped[int]=mapped_column(Integer)
  title:Mapped[str]=mapped_column(String(180),default="")
  body:Mapped[str]=mapped_column(String(2000),default="")
- created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
  __table_args__=(UniqueConstraint("product_id","session_id",name="uq_review_product_session"),)
 class WishlistItem(Base):
  __tablename__="wishlist_items"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
  session_id:Mapped[str]=mapped_column(String(100),index=True)
  product_id:Mapped[str]=mapped_column(ForeignKey("products.id",ondelete="CASCADE"),index=True)
- created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
  __table_args__=(UniqueConstraint("session_id","product_id",name="uq_wishlist_session_product"),)
 class AuditEvent(Base):
  __tablename__="audit_events"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4())); event_type:Mapped[str]=mapped_column(String(100),index=True)
  entity_type:Mapped[str]=mapped_column(String(80)); entity_id:Mapped[str]=mapped_column(String(36),index=True); details:Mapped[str]=mapped_column(Text,default="{}")
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
 
 
@@ -127,33 +129,33 @@ class Promotion(Base):
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
  code:Mapped[str]=mapped_column(String(40),unique=True,index=True); discount_percent:Mapped[int]=mapped_column(Integer)
  active:Mapped[bool]=mapped_column(Boolean,default=True); min_subtotal:Mapped[Decimal]=mapped_column(Numeric(12,2),default=0)
- starts_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True); ends_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
+ starts_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True); ends_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 class Supplier(Base):
  __tablename__="suppliers"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
- name:Mapped[str]=mapped_column(String(180)); contact_name:Mapped[str|None]=mapped_column(String(180),nullable=True); phone:Mapped[str|None]=mapped_column(String(40),nullable=True); email:Mapped[str|None]=mapped_column(String(254),nullable=True); active:Mapped[bool]=mapped_column(Boolean,default=True)
+ name:Mapped[str]=mapped_column(String(180)); contact_name:Mapped[str|None]=mapped_column(String(180),nullable=True); phone:Mapped[str|None]=mapped_column(String(40),nullable=True); email:Mapped[str|None]=mapped_column(String(254),nullable=True); active:Mapped[bool]=mapped_column(Boolean,default=True); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 class PurchaseOrder(Base):
  __tablename__="purchase_orders"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
  supplier_id:Mapped[str]=mapped_column(ForeignKey("suppliers.id"),index=True); product_id:Mapped[str]=mapped_column(ForeignKey("products.id"),index=True)
- quantity:Mapped[int]=mapped_column(Integer); unit_cost:Mapped[Decimal]=mapped_column(Numeric(12,2)); status:Mapped[str]=mapped_column(String(24),default="draft"); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ quantity:Mapped[int]=mapped_column(Integer); unit_cost:Mapped[Decimal]=mapped_column(Numeric(12,2)); status:Mapped[str]=mapped_column(String(24),default="draft"); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 class StoreBranch(Base):
  __tablename__="store_branches"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
- code:Mapped[str]=mapped_column(String(40),unique=True,index=True); name:Mapped[str]=mapped_column(String(180)); address:Mapped[str]=mapped_column(String(500),default=""); active:Mapped[bool]=mapped_column(Boolean,default=True)
+ code:Mapped[str]=mapped_column(String(40),unique=True,index=True); name:Mapped[str]=mapped_column(String(180)); address:Mapped[str]=mapped_column(String(500),default=""); active:Mapped[bool]=mapped_column(Boolean,default=True); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 class BranchInventory(Base):
  __tablename__="branch_inventory"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
- branch_id:Mapped[str]=mapped_column(ForeignKey("store_branches.id"),index=True); product_id:Mapped[str]=mapped_column(ForeignKey("products.id"),index=True); quantity:Mapped[int]=mapped_column(Integer,default=0)
+ branch_id:Mapped[str]=mapped_column(ForeignKey("store_branches.id"),index=True); product_id:Mapped[str]=mapped_column(ForeignKey("products.id"),index=True); quantity:Mapped[int]=mapped_column(Integer,default=0); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
  __table_args__=(UniqueConstraint("branch_id","product_id",name="uq_branch_product"),)
 class StaffMember(Base):
  __tablename__="staff_members"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
- name:Mapped[str]=mapped_column(String(180)); email:Mapped[str]=mapped_column(String(254),unique=True,index=True); role:Mapped[str]=mapped_column(String(30),default="viewer"); active:Mapped[bool]=mapped_column(Boolean,default=True)
+ name:Mapped[str]=mapped_column(String(180)); email:Mapped[str]=mapped_column(String(254),unique=True,index=True); role:Mapped[str]=mapped_column(String(30),default="viewer"); active:Mapped[bool]=mapped_column(Boolean,default=True); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 class ReturnRequest(Base):
  __tablename__="return_requests"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
- order_id:Mapped[str]=mapped_column(ForeignKey("orders.id"),index=True); reason:Mapped[str]=mapped_column(String(500)); status:Mapped[str]=mapped_column(String(24),default="requested"); refund_amount:Mapped[Decimal]=mapped_column(Numeric(12,2),default=0); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ order_id:Mapped[str]=mapped_column(ForeignKey("orders.id"),index=True); reason:Mapped[str]=mapped_column(String(500)); status:Mapped[str]=mapped_column(String(24),default="requested"); refund_amount:Mapped[Decimal]=mapped_column(Numeric(12,2),default=0); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 
 def get_db()->Generator[Session,None,None]:
  db=SessionLocal()
