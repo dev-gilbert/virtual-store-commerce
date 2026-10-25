@@ -438,7 +438,6 @@ def products(
  in_stock:bool|None=Query(default=None),
  brand:str|None=Query(default=None,max_length=120),
  min_rating:float|None=Query(default=None,ge=0,le=5),
- promoted:bool|None=Query(default=None),
  sort:str=Query(default="relevance",pattern=r"^(relevance|price_asc|price_desc|newest|name|popularity)$"),
  limit:int=Query(default=60,ge=1,le=100),
  offset:int=Query(default=0,ge=0),
@@ -452,11 +451,6 @@ def products(
  if max_price is not None: ps=[p for p in ps if p.price<=max_price]
  if in_stock is not None: ps=[p for p in ps if (p.stock_quantity>0)==in_stock]
  if brand: ps=[p for p in ps if p.brand.casefold()==brand.casefold()]
- if promoted is not None:
-  now=datetime.now(timezone.utc).replace(tzinfo=None)
-  active_promotions=list(db.scalars(select(Promotion).where(Promotion.active.is_(True))))
-  has_active_promotion=any((not promo.starts_at or promo.starts_at<=now) and (not promo.ends_at or promo.ends_at>=now) for promo in active_promotions)
-  ps=ps if (promoted and has_active_promotion) or (not promoted and not has_active_promotion) else []
  if min_rating is not None:
   reviews=list(db.scalars(select(ProductReview).where(ProductReview.product_id.in_([p.id for p in ps])))) if ps else []
   ratings={}
