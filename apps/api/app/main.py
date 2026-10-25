@@ -144,6 +144,44 @@ class Account(Base):
  reset_token_hash:Mapped[str|None]=mapped_column(String(64),nullable=True); reset_expires_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
 
+class CustomerAddress(Base):
+ __tablename__="customer_addresses"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ account_id:Mapped[str]=mapped_column(ForeignKey("accounts.id",ondelete="CASCADE"),index=True)
+ label:Mapped[str]=mapped_column(String(80),default="Home")
+ recipient_name:Mapped[str]=mapped_column(String(180))
+ phone:Mapped[str]=mapped_column(String(40))
+ address:Mapped[str]=mapped_column(Text)
+ is_default:Mapped[bool]=mapped_column(Boolean,default=False)
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
+class CustomerSupportRequest(Base):
+ __tablename__="customer_support_requests"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ account_id:Mapped[str]=mapped_column(ForeignKey("accounts.id",ondelete="CASCADE"),index=True)
+ subject:Mapped[str]=mapped_column(String(180))
+ message:Mapped[str]=mapped_column(Text)
+ status:Mapped[str]=mapped_column(String(24),default="open")
+ order_id:Mapped[str|None]=mapped_column(String(36),nullable=True)
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
+class ShoppingList(Base):
+ __tablename__="shopping_lists"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ owner_account_id:Mapped[str]=mapped_column(ForeignKey("accounts.id",ondelete="CASCADE"),index=True)
+ name:Mapped[str]=mapped_column(String(180))
+ share_code:Mapped[str]=mapped_column(String(40),unique=True,index=True,default=lambda:secrets.token_urlsafe(12))
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
+class ShoppingListItem(Base):
+ __tablename__="shopping_list_items"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ shopping_list_id:Mapped[str]=mapped_column(ForeignKey("shopping_lists.id",ondelete="CASCADE"),index=True)
+ product_id:Mapped[str]=mapped_column(ForeignKey("products.id",ondelete="CASCADE"),index=True)
+ quantity:Mapped[int]=mapped_column(Integer,default=1)
+ added_by:Mapped[str]=mapped_column(String(36),default="")
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
+ __table_args__=(UniqueConstraint("shopping_list_id","product_id",name="uq_shopping_list_product"),)
 class Promotion(Base):
  __tablename__="promotions"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
@@ -179,7 +217,7 @@ class ReturnRequest(Base):
 
 
 tenant_scope=contextvars.ContextVar("virtual_store_tenant_scope",default=None)
-TENANT_MODELS=(Product,Fixture,ProductPlacement,CartItem,Order,Promotion,Supplier,PurchaseOrder,StoreBranch,BranchInventory,StaffMember,ReturnRequest,AuditEvent,SearchEvent,ProductReview,WishlistItem,StockMovement,StoreLayoutVersion)
+TENANT_MODELS=(Product,Fixture,ProductPlacement,CartItem,Order,Promotion,Supplier,PurchaseOrder,StoreBranch,BranchInventory,StaffMember,ReturnRequest,AuditEvent,SearchEvent,ProductReview,WishlistItem,StockMovement,StoreLayoutVersion,CustomerAddress,CustomerSupportRequest,ShoppingList,ShoppingListItem)
 @event.listens_for(Session,"do_orm_execute")
 def apply_tenant_scope(execute_state):
  tenant_id=tenant_scope.get()
@@ -200,7 +238,7 @@ def ensure_tenant_columns():
  definitions={
   "products":"VARCHAR(36)","fixtures":"VARCHAR(36)","product_placements":"VARCHAR(36)","cart_items":"VARCHAR(36)","orders":"VARCHAR(36)",
   "promotions":"VARCHAR(36)","suppliers":"VARCHAR(36)","purchase_orders":"VARCHAR(36)","store_branches":"VARCHAR(36)","branch_inventory":"VARCHAR(36)",
-  "staff_members":"VARCHAR(36)","return_requests":"VARCHAR(36)","audit_events":"VARCHAR(36)","search_events":"VARCHAR(36)","product_reviews":"VARCHAR(36)","wishlist_items":"VARCHAR(36)","stock_movements":"VARCHAR(36)","store_layout_versions":"VARCHAR(36)"
+  "staff_members":"VARCHAR(36)","return_requests":"VARCHAR(36)","audit_events":"VARCHAR(36)","search_events":"VARCHAR(36)","product_reviews":"VARCHAR(36)","wishlist_items":"VARCHAR(36)","stock_movements":"VARCHAR(36)","store_layout_versions":"VARCHAR(36)","customer_addresses":"VARCHAR(36)","customer_support_requests":"VARCHAR(36)","shopping_lists":"VARCHAR(36)","shopping_list_items":"VARCHAR(36)"
  }
  inspector=inspect(engine)
  with engine.begin() as connection:
