@@ -477,10 +477,17 @@ def require_admin(request:Request,x_admin_key:str|None=Header(default=None,alias
   if not authorization and request.method not in ("GET","HEAD","OPTIONS"):
    if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie,csrf_header): raise HTTPException(403,"CSRF token missing or invalid")
   account=account_from_token(authorization or ("Bearer "+session_cookie if session_cookie else None),db)
-  if account.role in ("store_owner","store_manager"):
+  if account.role in ("store_owner","store_manager","store_staff"):
    if account.store_id:
     tenant=db.get(StoreTenant,account.store_id)
     if not tenant or tenant.status!="approved": raise HTTPException(403,"Store access is unavailable until the platform approves this store")
+   path=request.url.path;method=request.method
+   if account.role=="store_manager" and (path.startswith("/api/v1/admin/staff") or path.endswith("/refund")):
+    raise HTTPException(403,"Store manager role cannot administer staff accounts or approve refunds")
+   if account.role=="store_staff":
+    safe_read=method=="GET" and (path.endswith("/summary") or path.endswith("/orders") or path.endswith("/products") or path.endswith("/audit-events"))
+    fulfilment=method=="POST" and path.startswith("/api/v1/admin/orders/") and path.endswith("/status")
+    if not (safe_read or fulfilment):raise HTTPException(403,"Store staff role does not have permission for this action")
    return True
  raise HTTPException(401,"Sign in with an authorized store or platform account, or provide a valid development admin key")
 @app.post("/api/v1/admin/products",response_model=ProductOut,status_code=status.HTTP_201_CREATED,tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
