@@ -634,10 +634,25 @@ def require_admin(request:Request,x_admin_key:str|None=Header(default=None,alias
     tenant=db.get(StoreTenant,account.store_id)
     if not tenant or tenant.status!="approved": raise HTTPException(403,"Store access is unavailable until the platform approves this store")
    path=request.url.path;method=request.method
-   if account.role=="store_manager" and (path.startswith("/api/v1/admin/staff") or path.endswith("/refund")):
-    raise HTTPException(403,"Store manager role cannot administer staff accounts or approve refunds")
+   if account.role=="store_manager":
+    # Explicit least-privilege matrix. Owners retain control of catalogue pricing,
+    # staff administration, promotion rules, layout publication, and refunds.
+    if path.startswith("/api/v1/admin/staff") or path.endswith("/refund"):
+     raise HTTPException(403,"Store manager role cannot administer staff accounts or approve refunds")
+    if method!="GET":
+     manager_writes=(
+      path=="/api/v1/admin/inventory/adjust"
+      or path=="/api/v1/admin/purchase-orders"
+      or (path.startswith("/api/v1/admin/purchase-orders/") and path.endswith("/receive"))
+      or path=="/api/v1/admin/suppliers"
+      or path=="/api/v1/admin/returns"
+      or (path.startswith("/api/v1/admin/orders/") and path.endswith("/status"))
+      or path=="/api/v1/admin/layout-versions"
+      or (path.startswith("/api/v1/admin/layout-versions/") and path.endswith("/validate"))
+     )
+     if not manager_writes:raise HTTPException(403,"Store manager role does not have permission for this write action")
    if account.role=="store_staff":
-    safe_read=method=="GET" and (path.endswith("/summary") or path.endswith("/orders") or path.endswith("/products") or path.endswith("/audit-events"))
+    safe_read=method=="GET" and (path.endswith("/summary") or path=="/api/v1/admin/orders" or path=="/api/v1/admin/products" or path.endswith("/audit-events"))
     fulfilment=method=="POST" and path.startswith("/api/v1/admin/orders/") and path.endswith("/status")
     if not (safe_read or fulfilment):raise HTTPException(403,"Store staff role does not have permission for this action")
    return True
