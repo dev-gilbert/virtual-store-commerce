@@ -60,6 +60,8 @@ class Order(Base):
  customer_name:Mapped[str|None]=mapped_column(String(180),nullable=True); customer_phone:Mapped[str]=mapped_column(String(40),default="")
  customer_email:Mapped[str|None]=mapped_column(String(254),nullable=True); delivery_address:Mapped[str|None]=mapped_column(Text,nullable=True)
  delivery_instructions:Mapped[str|None]=mapped_column(Text,nullable=True); is_anonymous:Mapped[bool]=mapped_column(Boolean,default=False); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
+ discount_amount:Mapped[Decimal]=mapped_column(Numeric(12,2),default=Decimal("0")); delivery_fee:Mapped[Decimal]=mapped_column(Numeric(12,2),default=Decimal("0")); total:Mapped[Decimal]=mapped_column(Numeric(12,2),default=Decimal("0"))
+ delivery_method:Mapped[str]=mapped_column(String(20),default="delivery"); expected_delivery_window:Mapped[str|None]=mapped_column(String(120),nullable=True); proof_of_delivery:Mapped[str|None]=mapped_column(Text,nullable=True)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
  items:Mapped[list["OrderItem"]]=relationship(back_populates="order",cascade="all, delete-orphan")
 class OrderItem(Base):
@@ -229,6 +231,9 @@ class CheckoutInput(BaseModel):
  delivery_address:str|None=Field(default=None,max_length=1000)
  delivery_instructions:str|None=Field(default=None,max_length=1000)
  is_anonymous:bool=False
+ coupon_code:str|None=Field(default=None,max_length=40)
+ delivery_method:str=Field(default="delivery",pattern=r"^(delivery|pickup)$")
+ expected_delivery_window:str|None=Field(default=None,max_length=120)
 def audit(db,event,entity,entity_id,details="{}"): db.add(AuditEvent(event_type=event,entity_type=entity,entity_id=entity_id,details=details))
 def seed_data(db):
  if db.scalar(select(Product.id).limit(1)): return
@@ -254,7 +259,7 @@ def cart_payload(db,session_id):
   items.append({"product_id":p.id,"sku":p.sku,"name":p.name,"price":str(p.price),"currency":p.currency,"quantity":r.quantity,"line_total":str(line),"stock_quantity":p.stock_quantity})
  return {"session_id":session_id,"items":items,"item_count":count,"subtotal":str(subtotal),"currency":"RWF"}
 def order_payload(o):
- return {"id":o.id,"status":o.status,"payment_status":o.payment_status,"subtotal":str(o.subtotal),"currency":o.currency,"created_at":o.created_at.isoformat(),"customer_name":o.customer_name,"customer_phone":o.customer_phone,"customer_email":o.customer_email,"delivery_address":o.delivery_address,"delivery_instructions":o.delivery_instructions,"is_anonymous":o.is_anonymous,
+ return {"id":o.id,"status":o.status,"payment_status":o.payment_status,"subtotal":str(o.subtotal),"currency":o.currency,"created_at":o.created_at.isoformat(),"customer_name":o.customer_name,"customer_phone":o.customer_phone,"customer_email":o.customer_email,"delivery_address":o.delivery_address,"delivery_instructions":o.delivery_instructions,"is_anonymous":o.is_anonymous,"discount_amount":str(o.discount_amount),"delivery_fee":str(o.delivery_fee),"total":str(o.total),"delivery_method":o.delivery_method,"expected_delivery_window":o.expected_delivery_window,"proof_of_delivery":o.proof_of_delivery,
  "items":[{"product_id":i.product_id,"sku":i.sku,"name":i.product_name,"unit_price":str(i.unit_price),"quantity":i.quantity} for i in o.items],
  "payment":{"mode":"sandbox","next_action":f"/api/v1/payments/{o.id}/simulate-success"}}
 def ensure_product_rich_columns():
