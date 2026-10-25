@@ -570,17 +570,19 @@ def list_orders(session_id:str=Query(min_length=8,max_length=100),db:Session=Dep
  session_id=effective_session_id(session_id)
  os_=list(db.scalars(select(Order).where(Order.session_id==session_id).order_by(Order.created_at.desc()))); return {"items":[order_payload(o) for o in os_],"total":len(os_)}
 @app.post("/api/v1/payments/{order_id}/simulate-success",tags=["Sandbox Payments"])
-def simulate_payment(order_id:str,db:Session=Depends(get_db)):
+def simulate_payment(order_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ session_id=effective_session_id(session_id)
  o=db.scalar(select(Order).where(Order.id==order_id).with_for_update())
- if not o: raise HTTPException(404,"Order not found")
+ if not o or o.session_id!=session_id: raise HTTPException(404,"Order not found")
  if o.payment_status=="paid": return {"order_id":o.id,"payment_status":"paid","message":"Payment already confirmed; no duplicate action taken"}
  if o.status!="pending_payment": raise HTTPException(409,"This order can no longer be paid")
  o.payment_status="paid"; o.status="confirmed"; audit(db,"SANDBOX_PAYMENT_SUCCEEDED","order",o.id,'{"provider":"local-sandbox"}'); db.commit()
  return {"order_id":o.id,"payment_status":o.payment_status,"order_status":o.status,"mode":"sandbox"}
 @app.post("/api/v1/orders/{order_id}/cancel",tags=["Orders"])
-def cancel_order(order_id:str,db:Session=Depends(get_db)):
+def cancel_order(order_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ session_id=effective_session_id(session_id)
  o=db.scalar(select(Order).where(Order.id==order_id).with_for_update())
- if not o: raise HTTPException(404,"Order not found")
+ if not o or o.session_id!=session_id: raise HTTPException(404,"Order not found")
  if o.status=="cancelled": return {"order_id":o.id,"status":"cancelled","message":"Already cancelled"}
  if o.payment_status=="paid": raise HTTPException(409,"Paid orders need a refund workflow")
  for item in o.items:
@@ -1195,6 +1197,7 @@ def rollback_layout_version(version_id:str,db:Session=Depends(get_db)):
 
 @app.get("/api/v1/orders/{order_id}/receipt.pdf",tags=["Orders"])
 def order_receipt_pdf(order_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ session_id=effective_session_id(session_id)
  order=db.get(Order,order_id)
  if not order or order.session_id!=session_id:raise HTTPException(404,"Order not found")
  from reportlab.lib import colors
