@@ -251,6 +251,9 @@ def get_db()->Generator[Session,None,None]:
  db=SessionLocal()
  try: yield db
  finally: db.close()
+def effective_session_id(session_id:str)->str:
+ customer_id=customer_scope.get()
+ return "account:"+customer_id if customer_id else session_id
 class ProductCreate(BaseModel):
  sku:str=Field(min_length=2,max_length=80); name:str=Field(min_length=2,max_length=180); description:str=Field(default="",max_length=2000)
  category:str=Field(min_length=2,max_length=80); price:Decimal=Field(gt=0,max_digits=12,decimal_places=2); currency:str=Field(default="RWF",min_length=3,max_length=3)
@@ -491,8 +494,10 @@ def layout(db:Session=Depends(get_db)):
  return {"items":out,"total":len(out)}
 @app.get("/api/v1/cart",tags=["Cart"])
 def get_cart(session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)): return cart_payload(db,session_id)
+ session_id=effective_session_id(session_id)
 @app.post("/api/v1/cart/items",tags=["Cart"])
 def add_cart(payload:CartItemInput,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ session_id=effective_session_id(session_id)
  p=db.get(Product,payload.product_id)
  if not p or not p.active: raise HTTPException(404,"Product not found")
  row=db.scalar(select(CartItem).where(CartItem.session_id==session_id,CartItem.product_id==p.id)); qty=payload.quantity+(row.quantity if row else 0)
@@ -502,11 +507,13 @@ def add_cart(payload:CartItemInput,session_id:str=Query(min_length=8,max_length=
  db.commit(); return cart_payload(db,session_id)
 @app.delete("/api/v1/cart/items/{product_id}",tags=["Cart"])
 def remove_cart(product_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ session_id=effective_session_id(session_id)
  row=db.scalar(select(CartItem).where(CartItem.session_id==session_id,CartItem.product_id==product_id))
  if row: db.delete(row); db.commit()
  return cart_payload(db,session_id)
 @app.put("/api/v1/cart/items/{product_id}",tags=["Cart"])
 def set_cart_quantity(product_id:str,payload:CartItemInput,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ session_id=effective_session_id(session_id)
  product=db.get(Product,product_id)
  if not product or not product.active:raise HTTPException(404,"Product not found")
  if payload.quantity>product.stock_quantity:raise HTTPException(409,f"Only {product.stock_quantity} units are currently in stock")
@@ -516,10 +523,11 @@ def set_cart_quantity(product_id:str,payload:CartItemInput,session_id:str=Query(
  return cart_payload(db,session_id)
 @app.post("/api/v1/checkout",tags=["Orders"])
 def checkout(payload:CheckoutInput,idempotency_key:str=Header(alias="Idempotency-Key",min_length=8,max_length=160),db:Session=Depends(get_db)):
+ session_id=effective_session_id(payload.session_id)
  if not payload.is_anonymous and (not payload.customer_name or not payload.customer_name.strip() or not payload.delivery_address or not payload.delivery_address.strip()): raise HTTPException(422,"Name and delivery address are required unless you choose anonymous checkout")
  old=db.scalar(select(Order).where(Order.idempotency_key==idempotency_key))
  if old: return order_payload(old)
- cart=list(db.scalars(select(CartItem).where(CartItem.session_id==payload.session_id)))
+ cart=list(db.scalars(select(CartItem).where(CartItem.session_id==session_id)))
  if not cart: raise HTTPException(400,"Your cart is empty")
  basket=[]; subtotal=Decimal("0")
  for row in cart:
@@ -540,7 +548,7 @@ def checkout(payload:CheckoutInput,idempotency_key:str=Header(alias="Idempotency
   discount=(subtotal*Decimal(promo.discount_percent)/Decimal(100)).quantize(Decimal("0.01"))
  delivery_fee=Decimal("0") if payload.delivery_method=="pickup" else Decimal(os.getenv("DELIVERY_FEE_RWF","1000"))
  total=max(Decimal("0"),subtotal-discount+delivery_fee)
- order=Order(session_id=payload.session_id,idempotency_key=idempotency_key,subtotal=subtotal,discount_amount=discount,delivery_fee=delivery_fee,total=total,delivery_method=payload.delivery_method,expected_delivery_window=payload.expected_delivery_window,currency="RWF",customer_name=(payload.customer_name.strip() if payload.customer_name else None),customer_phone=payload.customer_phone.strip(),customer_email=(payload.customer_email.strip() if payload.customer_email else None),delivery_address=(payload.delivery_address.strip() if payload.delivery_address else None),delivery_instructions=(payload.delivery_instructions.strip() if payload.delivery_instructions else None),is_anonymous=payload.is_anonymous); db.add(order); db.flush()
+ order=Order(session_id=session_id,idempotency_key=idempotency_key,subtotal=subtotal,discount_amount=discount,delivery_fee=delivery_fee,total=total,delivery_method=payload.delivery_method,expected_delivery_window=payload.expected_delivery_window,currency="RWF",customer_name=(payload.customer_name.strip() if payload.customer_name else None),customer_phone=payload.customer_phone.strip(),customer_email=(payload.customer_email.strip() if payload.customer_email else None),delivery_address=(payload.delivery_address.strip() if payload.delivery_address else None),delivery_instructions=(payload.delivery_instructions.strip() if payload.delivery_instructions else None),is_anonymous=payload.is_anonymous); db.add(order); db.flush()
  for p,qty in basket:
   p.stock_quantity-=qty; db.add(StockMovement(product_id=p.id,quantity_delta=-qty,reason="order_reservation",reference=order.id)); db.add(OrderItem(order_id=order.id,product_id=p.id,sku=p.sku,product_name=p.name,unit_price=p.price,quantity=qty))
   audit(db,"INVENTORY_RESERVED","product",p.id,f'{{"quantity":{qty},"order_id":"{order.id}"}}')
@@ -554,11 +562,13 @@ def checkout(payload:CheckoutInput,idempotency_key:str=Header(alias="Idempotency
  db.refresh(order); return order_payload(order)
 @app.get("/api/v1/orders/{order_id}",tags=["Orders"])
 def get_order(order_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ session_id=effective_session_id(session_id)
  o=db.get(Order,order_id)
  if not o or o.session_id!=session_id: raise HTTPException(404,"Order not found")
  return order_payload(o)
 @app.get("/api/v1/orders",tags=["Orders"])
 def list_orders(session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ session_id=effective_session_id(session_id)
  os_=list(db.scalars(select(Order).where(Order.session_id==session_id).order_by(Order.created_at.desc()))); return {"items":[order_payload(o) for o in os_],"total":len(os_)}
 @app.post("/api/v1/payments/{order_id}/simulate-success",tags=["Sandbox Payments"])
 def simulate_payment(order_id:str,db:Session=Depends(get_db)):
@@ -1070,6 +1080,7 @@ def update_order_status(order_id:str,payload:OrderStatusInput,db:Session=Depends
  return {"order_id":order.id,"status":order.status,"expected_delivery_window":payload.expected_delivery_window,"proof_of_delivery":payload.proof_of_delivery}
 @app.get("/api/v1/orders/{order_id}/receipt",tags=["Orders"])
 def order_receipt(order_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ session_id=effective_session_id(session_id)
  order=db.get(Order,order_id)
  if not order or order.session_id!=session_id:raise HTTPException(404,"Order not found")
  return {"receipt_number":"VSC-"+order.id[:8].upper(),"issued_at":order.created_at.isoformat(),"currency":order.currency,"subtotal":str(order.subtotal),"payment_status":order.payment_status,"order_status":order.status,"customer":{"name":order.customer_name,"phone":order.customer_phone,"email":order.customer_email,"address":order.delivery_address},"items":[{"sku":i.sku,"name":i.product_name,"unit_price":str(i.unit_price),"quantity":i.quantity,"line_total":str(i.unit_price*i.quantity)} for i in order.items]}
