@@ -97,7 +97,6 @@ class AuditEvent(Base):
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4())); event_type:Mapped[str]=mapped_column(String(100),index=True)
  entity_type:Mapped[str]=mapped_column(String(80)); entity_id:Mapped[str]=mapped_column(String(36),index=True); details:Mapped[str]=mapped_column(Text,default="{}")
  tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
- tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
 
 
@@ -156,6 +155,38 @@ class ReturnRequest(Base):
  __tablename__="return_requests"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
  order_id:Mapped[str]=mapped_column(ForeignKey("orders.id"),index=True); reason:Mapped[str]=mapped_column(String(500)); status:Mapped[str]=mapped_column(String(24),default="requested"); refund_amount:Mapped[Decimal]=mapped_column(Numeric(12,2),default=0); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
+
+
+tenant_scope=contextvars.ContextVar("virtual_store_tenant_scope",default=None)
+TENANT_MODELS=(Product,Fixture,ProductPlacement,CartItem,Order,Promotion,Supplier,PurchaseOrder,StoreBranch,BranchInventory,StaffMember,ReturnRequest,AuditEvent,SearchEvent,ProductReview,WishlistItem)
+@event.listens_for(Session,"do_orm_execute")
+def apply_tenant_scope(execute_state):
+ tenant_id=tenant_scope.get()
+ if not execute_state.is_select or tenant_id is None:return
+ for model in TENANT_MODELS:
+  if tenant_id=="__public__":
+   execute_state.statement=execute_state.statement.options(with_loader_criteria(model,lambda cls:cls.tenant_id.is_(None),include_aliases=True))
+  else:
+   execute_state.statement=execute_state.statement.options(with_loader_criteria(model,lambda cls:cls.tenant_id==tenant_id,include_aliases=True))
+@event.listens_for(Session,"before_flush")
+def assign_tenant_on_insert(session,flush_context,instances):
+ tenant_id=tenant_scope.get()
+ if tenant_id and tenant_id!="__public__":
+  for obj in session.new:
+   if isinstance(obj,TENANT_MODELS) and getattr(obj,"tenant_id",None) is None:obj.tenant_id=tenant_id
+def ensure_tenant_columns():
+ from sqlalchemy import inspect, text
+ definitions={
+  "products":"VARCHAR(36)","fixtures":"VARCHAR(36)","product_placements":"VARCHAR(36)","cart_items":"VARCHAR(36)","orders":"VARCHAR(36)",
+  "promotions":"VARCHAR(36)","suppliers":"VARCHAR(36)","purchase_orders":"VARCHAR(36)","store_branches":"VARCHAR(36)","branch_inventory":"VARCHAR(36)",
+  "staff_members":"VARCHAR(36)","return_requests":"VARCHAR(36)","audit_events":"VARCHAR(36)","search_events":"VARCHAR(36)","product_reviews":"VARCHAR(36)","wishlist_items":"VARCHAR(36)"
+ }
+ inspector=inspect(engine)
+ with engine.begin() as connection:
+  for table,column_type in definitions.items():
+   if not inspector.has_table(table):continue
+   existing={column["name"] for column in inspector.get_columns(table)}
+   if "tenant_id" not in existing:connection.execute(text(f"ALTER TABLE {table} ADD COLUMN tenant_id {column_type}"))
 
 def get_db()->Generator[Session,None,None]:
  db=SessionLocal()
@@ -249,6 +280,7 @@ async def lifespan(_):
  ensure_order_customer_columns()
  ensure_account_store_columns()
  ensure_product_rich_columns()
+ ensure_tenant_columns()
  with SessionLocal() as db:
   seed_data(db)
   seed_platform_admin(db)
