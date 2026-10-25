@@ -350,7 +350,11 @@ def require_admin(x_admin_key:str|None=Header(default=None,alias="X-Admin-Key"),
  if x_admin_key and hmac.compare_digest(x_admin_key,os.getenv("ADMIN_API_KEY","local-dev-admin-change-me")): return True
  if authorization and authorization.startswith("Bearer "):
   account=account_from_token(authorization,db)
-  if account.role in ("store_owner","store_manager","platform_admin"): return True
+  if account.role in ("store_owner","store_manager","platform_admin"):
+   if account.role!="platform_admin" and account.store_id:
+    tenant=db.get(StoreTenant,account.store_id)
+    if not tenant or tenant.status!="approved": raise HTTPException(403,"Store access is unavailable until the platform approves this store")
+   return True
  raise HTTPException(401,"Sign in with an authorized store or platform account, or provide a valid development admin key")
 @app.post("/api/v1/admin/products",response_model=ProductOut,status_code=status.HTTP_201_CREATED,tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
 def create_product(payload:ProductCreate,db:Session=Depends(get_db)):
@@ -577,9 +581,6 @@ def account_from_token(authorization:str|None,db:Session)->Account:
   if not hmac.compare_digest(sig,expected) or int(expires)<int(datetime.now(timezone.utc).timestamp()):raise ValueError()
   account=db.get(Account,account_id)
   if not account or not account.active or account.role!=role:raise ValueError()
-  if account.role!="platform_admin" and account.store_id:
-   tenant=db.get(StoreTenant,account.store_id)
-   if not tenant or tenant.status!="approved": raise HTTPException(403,"Store access is unavailable until the platform approves this store")
   return account
  except Exception:raise HTTPException(401,"Session is invalid or expired")
 @app.post("/api/v1/auth/register",tags=["Authentication"])
