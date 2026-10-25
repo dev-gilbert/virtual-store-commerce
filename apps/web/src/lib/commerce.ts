@@ -9,3 +9,6 @@ export type ProductSearchOptions={q?:string;category?:string;min_price?:string;m
 export type ProductSearchResult={items:Product[];total:number;limit:number;offset:number};
 export function productSearchPath(options:ProductSearchOptions={}){const params=new URLSearchParams();for(const [key,value] of Object.entries(options)){if(value!==undefined&&value!==null&&value!=="")params.set(key,String(value))}return `/api/v1/products?${params.toString()}`}
 export async function searchProducts(options:ProductSearchOptions={}){return api<ProductSearchResult>(productSearchPath(options))}
+
+export type Order={id:string;status:string;payment_status:string;subtotal:string;currency:string;created_at:string;customer_name:string|null;customer_phone:string;customer_email:string|null;delivery_address:string|null;delivery_instructions:string|null;is_anonymous:boolean;items:{product_id:string;sku:string;name:string;unit_price:string;quantity:number}[]};
+export async function listOrders(){return api<{items:Order[];total:number}>(`/api/v1/orders?session_id=${encodeURIComponent(getSessionId())}`)}
