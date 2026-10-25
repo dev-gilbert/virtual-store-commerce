@@ -145,3 +145,23 @@ def test_advanced_retailer_workflows(client):
     assert stock.status_code==200 and stock.json()["quantity"]==7
     staff=client.post("/api/v1/admin/staff",headers=headers,json={"name":"Store Viewer","email":"viewer-test@example.com","role":"viewer"})
     assert staff.status_code==200 and staff.json()["role"]=="viewer"
+
+def test_account_registration_login_and_password_recovery(client):
+    registered=client.post("/api/v1/auth/register",json={"name":"Store Owner","email":"owner-flow@example.com","password":"correct-horse-battery-7","store_name":"Kigali Market"})
+    assert registered.status_code==200
+    token=registered.json()["token"]
+    assert registered.json()["account"]["role"]=="store_owner"
+    me=client.get("/api/v1/auth/me",headers={"Authorization":f"Bearer {token}"})
+    assert me.status_code==200 and me.json()["email"]=="owner-flow@example.com"
+    login=client.post("/api/v1/auth/login",json={"email":"owner-flow@example.com","password":"correct-horse-battery-7"})
+    assert login.status_code==200
+    bad=client.post("/api/v1/auth/login",json={"email":"owner-flow@example.com","password":"not-the-password"})
+    assert bad.status_code==401
+    forgot=client.post("/api/v1/auth/forgot-password",json={"email":"owner-flow@example.com"})
+    assert forgot.status_code==200
+    reset_token=forgot.json().get("development_reset_token")
+    assert reset_token
+    reset=client.post("/api/v1/auth/reset-password",json={"token":reset_token,"password":"new-correct-password-8"})
+    assert reset.status_code==200
+    new_login=client.post("/api/v1/auth/login",json={"email":"owner-flow@example.com","password":"new-correct-password-8"})
+    assert new_login.status_code==200
