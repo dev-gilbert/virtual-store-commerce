@@ -237,3 +237,18 @@
 .basket-quantity-controls button:disabled{opacity:.4;cursor:not-allowed}
 .basket-quantity-controls span{font-size:13px;min-width:14px;text-align:center}
 .checkout-details select{width:100%;padding:10px 11px;border:1px solid #d8ddd4;border-radius:8px;background:#fffefa;color:#1c2421;font:inherit}
+
+
+.shopping-route-panel{margin:30px 0;padding:22px;background:#fffefa;border:1px solid #e1e3dc;border-radius:16px}
+.shopping-route-panel .map-directory-head{margin-bottom:16px}.shopping-route-panel .map-directory-head h2{margin-bottom:6px}.shopping-route-panel .map-directory-head p{margin:0;color:#6d7771;font-size:14px}
+.route-product-picker{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.route-product-picker label{display:flex;align-items:flex-start;gap:9px;padding:10px;border:1px solid #e7e9e2;border-radius:9px;font-size:13px;cursor:pointer}
+.route-product-picker input,.shopping-route-steps input{accent-color:#234e3e;margin-top:3px}
+.route-product-picker span{display:flex;flex-direction:column;gap:4px}.route-product-picker small,.shopping-route-steps small{color:#73796f;font-size:12px}
+.shopping-route-steps{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:8px}
+.shopping-route-steps li{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #e6e9e2;border-radius:10px}
+.shopping-route-steps li>div{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}.shopping-route-steps li>label{display:flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap}
+.shopping-route-steps li>a{font-size:12px;color:#234e3e;font-weight:650;white-space:nowrap}
+.route-step-number{display:grid;place-items:center;flex:0 0 28px;height:28px;border-radius:50%;background:#edf1eb;color:#234e3e;font-weight:700;font-size:12px}
+.shopping-route-steps .route-collected{opacity:.58;background:#f5f7f3}.shopping-route-steps .route-collected>div strong{text-decoration:line-through}
+@media(max-width:760px){.route-product-picker{grid-template-columns:repeat(2,minmax(0,1fr))}.shopping-route-steps li{align-items:flex-start;flex-wrap:wrap}.shopping-route-steps li>div{flex-basis:calc(100% - 44px)}}
