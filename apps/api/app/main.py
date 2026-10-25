@@ -493,8 +493,7 @@ def layout(db:Session=Depends(get_db)):
    "products":[{"placement_id":p.id,"product_id":p.product.id,"sku":p.product.sku,"name":p.product.name,"price":str(p.product.price),"color":p.product.color,"image_url":p.product.image_url,"stock_quantity":p.product.stock_quantity,"shelf_level":p.shelf_level,"slot":p.slot} for p in ps if p.product.active]})
  return {"items":out,"total":len(out)}
 @app.get("/api/v1/cart",tags=["Cart"])
-def get_cart(session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)): return cart_payload(db,session_id)
- session_id=effective_session_id(session_id)
+def get_cart(session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)): return cart_payload(db,effective_session_id(session_id))
 @app.post("/api/v1/cart/items",tags=["Cart"])
 def add_cart(payload:CartItemInput,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
  session_id=effective_session_id(session_id)
