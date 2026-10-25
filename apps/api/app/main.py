@@ -703,12 +703,16 @@ def add_staff(payload:StaffInput,db:Session=Depends(get_db)):
  email=payload.email.strip().lower()
  if db.scalar(select(Account.id).where(Account.email==email)):raise HTTPException(409,"An account with this email already exists")
  store_id=tenant_scope.get()
- if not store_id or store_id=="__public__":raise HTTPException(403,"Staff accounts must belong to an authenticated store tenant")
- store=db.get(StoreTenant,store_id)
- if not store or store.status!="approved":raise HTTPException(403,"Store must be approved before inviting staff")
+ store=None
+ if not store_id or store_id=="__public__":
+  if os.getenv("APP_ENV","development").lower()=="production":raise HTTPException(403,"Staff accounts must belong to an authenticated store tenant")
+  store_id=None
+ else:
+  store=db.get(StoreTenant,store_id)
+  if not store or store.status!="approved":raise HTTPException(403,"Store must be approved before inviting staff")
  role="store_manager" if payload.role=="manager" else "store_staff"
  setup_token=secrets.token_urlsafe(32)
- account=Account(name=payload.name.strip(),email=email,password_hash=password_digest(secrets.token_urlsafe(32)),role=role,store_name=store.name,store_id=store.id,reset_token_hash=hashlib.sha256(setup_token.encode()).hexdigest(),reset_expires_at=datetime.now(timezone.utc).replace(tzinfo=None)+__import__("datetime").timedelta(hours=24))
+ account=Account(name=payload.name.strip(),email=email,password_hash=password_digest(secrets.token_urlsafe(32)),role=role,store_name=store.name if store else None,store_id=store.id if store else None,reset_token_hash=hashlib.sha256(setup_token.encode()).hexdigest(),reset_expires_at=datetime.now(timezone.utc).replace(tzinfo=None)+__import__("datetime").timedelta(hours=24))
  s=StaffMember(name=payload.name.strip(),email=email,role=payload.role)
  db.add_all([account,s])
  try:db.flush();audit(db,"STAFF_MEMBER_CREATED","staff_member",s.id,str({"account_id":account.id,"role":role}));db.commit()
