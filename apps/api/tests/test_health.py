@@ -36,7 +36,7 @@ def test_cart_checkout_idempotency_and_sandbox_payment(client):
     assert again.json()["id"]==order["id"]
     paid=client.post(f"/api/v1/payments/{order['id']}/simulate-success",params={"session_id":session})
     assert paid.json()["payment_status"]=="paid"
-    assert "no duplicate action" in client.post(f"/api/v1/payments/{order['id']}/simulate-success").json()["message"]
+    assert "no duplicate action" in client.post(f"/api/v1/payments/{order['id']}/simulate-success",params={"session_id":session}).json()["message"]
 
 def test_admin_key_required_and_product_creation(client):
     assert client.get("/api/v1/admin/summary").status_code==401
