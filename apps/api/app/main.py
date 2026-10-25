@@ -939,9 +939,6 @@ def register_account(payload:RegisterInput,response:Response,db:Session=Depends(
 def login_account(payload:LoginInput,response:Response,db:Session=Depends(get_db)):
  account=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
  if not account or not account.active or not password_matches(payload.password,account.password_hash):raise HTTPException(401,"Email or password is incorrect")
- if account.store_id and account.role!="platform_admin":
-  tenant=db.get(StoreTenant,account.store_id)
-  if not tenant or tenant.status!="approved":raise HTTPException(403,"Your store is awaiting platform approval or is not currently available")
  if account.mfa_enabled and (not payload.otp or not account.mfa_secret or not pyotp.TOTP(account.mfa_secret).verify(payload.otp,valid_window=1)):raise HTTPException(401,"A valid multi-factor authentication code is required")
  token=issue_account_token(account); csrf=secrets.token_urlsafe(32); production=os.getenv("APP_ENV","development").lower()=="production"
  response.set_cookie("vsc_session",token,httponly=True,secure=production,samesite="lax",max_age=43200,path="/")
