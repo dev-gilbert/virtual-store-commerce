@@ -94,6 +94,15 @@ class WishlistItem(Base):
  product_id:Mapped[str]=mapped_column(ForeignKey("products.id",ondelete="CASCADE"),index=True)
  tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
  __table_args__=(UniqueConstraint("session_id","product_id",name="uq_wishlist_session_product"),)
+class StockMovement(Base):
+ __tablename__="stock_movements"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ product_id:Mapped[str]=mapped_column(ForeignKey("products.id"),index=True)
+ quantity_delta:Mapped[int]=mapped_column(Integer)
+ reason:Mapped[str]=mapped_column(String(80))
+ reference:Mapped[str]=mapped_column(String(180),default="")
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 class AuditEvent(Base):
  __tablename__="audit_events"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4())); event_type:Mapped[str]=mapped_column(String(100),index=True)
@@ -160,7 +169,7 @@ class ReturnRequest(Base):
 
 
 tenant_scope=contextvars.ContextVar("virtual_store_tenant_scope",default=None)
-TENANT_MODELS=(Product,Fixture,ProductPlacement,CartItem,Order,Promotion,Supplier,PurchaseOrder,StoreBranch,BranchInventory,StaffMember,ReturnRequest,AuditEvent,SearchEvent,ProductReview,WishlistItem)
+TENANT_MODELS=(Product,Fixture,ProductPlacement,CartItem,Order,Promotion,Supplier,PurchaseOrder,StoreBranch,BranchInventory,StaffMember,ReturnRequest,AuditEvent,SearchEvent,ProductReview,WishlistItem,StockMovement)
 @event.listens_for(Session,"do_orm_execute")
 def apply_tenant_scope(execute_state):
  tenant_id=tenant_scope.get()
@@ -477,7 +486,7 @@ def checkout(payload:CheckoutInput,idempotency_key:str=Header(alias="Idempotency
  total=max(Decimal("0"),subtotal-discount+delivery_fee)
  order=Order(session_id=payload.session_id,idempotency_key=idempotency_key,subtotal=subtotal,discount_amount=discount,delivery_fee=delivery_fee,total=total,delivery_method=payload.delivery_method,expected_delivery_window=payload.expected_delivery_window,currency="RWF",customer_name=(payload.customer_name.strip() if payload.customer_name else None),customer_phone=payload.customer_phone.strip(),customer_email=(payload.customer_email.strip() if payload.customer_email else None),delivery_address=(payload.delivery_address.strip() if payload.delivery_address else None),delivery_instructions=(payload.delivery_instructions.strip() if payload.delivery_instructions else None),is_anonymous=payload.is_anonymous); db.add(order); db.flush()
  for p,qty in basket:
-  p.stock_quantity-=qty; db.add(OrderItem(order_id=order.id,product_id=p.id,sku=p.sku,product_name=p.name,unit_price=p.price,quantity=qty))
+  p.stock_quantity-=qty; db.add(StockMovement(product_id=p.id,quantity_delta=-qty,reason="order_reservation",reference=order.id)); db.add(OrderItem(order_id=order.id,product_id=p.id,sku=p.sku,product_name=p.name,unit_price=p.price,quantity=qty))
   audit(db,"INVENTORY_RESERVED","product",p.id,f'{{"quantity":{qty},"order_id":"{order.id}"}}')
  for row in cart: db.delete(row)
  audit(db,"ORDER_CREATED","order",order.id,f'{{"subtotal":"{subtotal}","status":"pending_payment"}}')
@@ -511,7 +520,7 @@ def cancel_order(order_id:str,db:Session=Depends(get_db)):
  if o.payment_status=="paid": raise HTTPException(409,"Paid orders need a refund workflow")
  for item in o.items:
   p=db.get(Product,item.product_id)
-  if p: p.stock_quantity+=item.quantity
+  if p: p.stock_quantity+=item.quantity; db.add(StockMovement(product_id=p.id,quantity_delta=item.quantity,reason="order_cancelled_release",reference=o.id))
  o.status="cancelled"; audit(db,"ORDER_CANCELLED_STOCK_RELEASED","order",o.id); db.commit()
  return {"order_id":o.id,"status":o.status}
 def require_admin(request:Request,x_admin_key:str|None=Header(default=None,alias="X-Admin-Key"),authorization:str|None=Header(default=None),session_cookie:str|None=Cookie(default=None,alias="vsc_session"),csrf_cookie:str|None=Cookie(default=None,alias="vsc_csrf"),csrf_header:str|None=Header(default=None,alias="X-CSRF-Token"),db:Session=Depends(get_db)):
@@ -550,7 +559,10 @@ def update_product(product_id:str,payload:ProductPatch,db:Session=Depends(get_db
  p=db.get(Product,product_id)
  if not p: raise HTTPException(404,"Product not found")
  changes=payload.model_dump(exclude_unset=True)
+ old_stock=p.stock_quantity
  for field,value in changes.items(): setattr(p,field,value)
+ if "stock_quantity" in changes and p.stock_quantity!=old_stock:
+  db.add(StockMovement(product_id=p.id,quantity_delta=p.stock_quantity-old_stock,reason="manual_adjustment",reference="product edit"))
  audit(db,"PRODUCT_UPDATED","product",p.id,str(changes)); db.commit(); db.refresh(p); return p
 @app.post("/api/v1/admin/fixtures",status_code=status.HTTP_201_CREATED,tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
 def create_fixture(payload:FixtureCreate,db:Session=Depends(get_db)):
@@ -662,7 +674,7 @@ def receive_purchase_order(purchase_order_id:str,db:Session=Depends(get_db)):
  po=db.get(PurchaseOrder,purchase_order_id)
  if not po: raise HTTPException(404,"Purchase order not found")
  if po.status=="received": raise HTTPException(409,"Purchase order was already received")
- product=db.get(Product,po.product_id);product.stock_quantity+=po.quantity;po.status="received";audit(db,"PURCHASE_ORDER_RECEIVED","purchase_order",po.id,str({"quantity":po.quantity}));db.commit()
+ product=db.get(Product,po.product_id);product.stock_quantity+=po.quantity;db.add(StockMovement(product_id=product.id,quantity_delta=po.quantity,reason="supplier_receipt",reference=po.id));po.status="received";audit(db,"PURCHASE_ORDER_RECEIVED","purchase_order",po.id,str({"quantity":po.quantity}));db.commit()
  return {"id":po.id,"status":po.status,"new_stock_quantity":product.stock_quantity}
 @app.post("/api/v1/admin/branches",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
 def create_branch(payload:BranchInput,db:Session=Depends(get_db)):
@@ -889,6 +901,11 @@ def platform_audit_events(limit:int=Query(default=100,ge=1,le=500),authorization
  return {"items":[{"id":e.id,"event_type":e.event_type,"entity_type":e.entity_type,"entity_id":e.entity_id,"details":e.details,"created_at":e.created_at.isoformat()} for e in rows],"total":len(rows)}
 
 # Discovery, customer engagement, fulfilment tracking, and receipt APIs.
+class StockAdjustmentInput(BaseModel):
+ product_id:str
+ quantity_delta:int=Field(ne=0,ge=-1000000,le=1000000)
+ reason:str=Field(min_length=3,max_length=80)
+ reference:str=Field(default="",max_length=180)
 class ReviewInput(BaseModel):
  session_id:str=Field(min_length=8,max_length=100)
  rating:int=Field(ge=1,le=5)
@@ -973,3 +990,20 @@ def order_receipt(order_id:str,session_id:str=Query(min_length=8,max_length=100)
  order=db.get(Order,order_id)
  if not order or order.session_id!=session_id:raise HTTPException(404,"Order not found")
  return {"receipt_number":"VSC-"+order.id[:8].upper(),"issued_at":order.created_at.isoformat(),"currency":order.currency,"subtotal":str(order.subtotal),"payment_status":order.payment_status,"order_status":order.status,"customer":{"name":order.customer_name,"phone":order.customer_phone,"email":order.customer_email,"address":order.delivery_address},"items":[{"sku":i.sku,"name":i.product_name,"unit_price":str(i.unit_price),"quantity":i.quantity,"line_total":str(i.unit_price*i.quantity)} for i in order.items]}
+
+@app.post("/api/v1/admin/inventory/adjust",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def adjust_inventory(payload:StockAdjustmentInput,db:Session=Depends(get_db)):
+ product=db.get(Product,payload.product_id)
+ if not product:raise HTTPException(404,"Product not found")
+ updated=product.stock_quantity+payload.quantity_delta
+ if updated<0:raise HTTPException(409,"Stock adjustment would make inventory negative")
+ product.stock_quantity=updated
+ movement=StockMovement(product_id=product.id,quantity_delta=payload.quantity_delta,reason=payload.reason,reference=payload.reference)
+ db.add(movement);audit(db,"INVENTORY_ADJUSTED","product",product.id,str({"delta":payload.quantity_delta,"reason":payload.reason,"reference":payload.reference}));db.commit()
+ return {"product_id":product.id,"sku":product.sku,"stock_quantity":product.stock_quantity,"movement_id":movement.id}
+@app.get("/api/v1/admin/products/{product_id}/stock-movements",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def stock_movements(product_id:str,limit:int=Query(default=100,ge=1,le=500),db:Session=Depends(get_db)):
+ product=db.get(Product,product_id)
+ if not product:raise HTTPException(404,"Product not found")
+ rows=list(db.scalars(select(StockMovement).where(StockMovement.product_id==product_id).order_by(StockMovement.created_at.desc()).limit(limit)))
+ return {"items":[{"id":m.id,"quantity_delta":m.quantity_delta,"reason":m.reason,"reference":m.reference,"created_at":m.created_at.isoformat()} for m in rows],"total":len(rows)}
