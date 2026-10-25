@@ -1,7 +1,7 @@
 """Add rich product discovery and tenant-scoped commerce columns."""
 from alembic import op
 import sqlalchemy as sa
-from app.main import SearchEvent, ProductReview, WishlistItem
+from app.main import SearchEvent, ProductReview, WishlistItem, StockMovement
 
 revision = "0004_search_tenant_security"
 down_revision = "0003_retailer_operations"
@@ -25,7 +25,7 @@ TENANT_TABLES = (
     "fixtures", "product_placements", "cart_items", "orders", "promotions",
     "suppliers", "purchase_orders", "store_branches", "branch_inventory",
     "staff_members", "return_requests", "audit_events", "search_events",
-    "product_reviews", "wishlist_items",
+    "product_reviews", "wishlist_items", "stock_movements",
 )
 
 def _add_missing(table_name, column):
@@ -46,7 +46,7 @@ ORDER_COLUMNS = {
 
 def upgrade():
     bind = op.get_bind()
-    for model in (SearchEvent, ProductReview, WishlistItem):
+    for model in (SearchEvent, ProductReview, WishlistItem, StockMovement):
         model.__table__.create(bind=bind, checkfirst=True)
     for name, column in RICH_PRODUCT_COLUMNS.items():
         _add_missing("products", column)
