@@ -26,12 +26,12 @@ export default function VisualStoreBuilder(){
    for(const item of items){
      if(item.id.startsWith("draft-")){
        const kind=item.kind;
-       const created=await api<{id:string}>("/api/v1/admin/fixtures",{method:"POST",headers:{"X-Admin-Key":adminKey},body:JSON.stringify({code:`LAYOUT-${item.id.slice(-8)}`,name:item.name,kind,x:item.x,y:0,z:item.z})});
-       for(let slot=0;slot<item.products.length;slot++){await api(`/api/v1/admin/fixtures/${created.id}/items`,{method:"POST",headers:{"X-Admin-Key":adminKey},body:JSON.stringify({product_id:item.products[slot],shelf_level:0,slot})});}
+       const created=await api<{id:string}>("/api/v1/admin/fixtures",{method:"POST",body:JSON.stringify({code:`LAYOUT-${item.id.slice(-8)}`,name:item.name,kind,x:item.x,y:0,z:item.z})});
+       for(let slot=0;slot<item.products.length;slot++){await api(`/api/v1/admin/fixtures/${created.id}/items`,{method:"POST",body:JSON.stringify({product_id:item.products[slot],shelf_level:0,slot})});}
      }else{
        const live=liveById.get(item.id);if(!live)continue;
        const liveIds=live.products.map(p=>p.product_id);
-       for(let slot=0;slot<item.products.length;slot++){const pid=item.products[slot];if(!liveIds.includes(pid)){await api(`/api/v1/admin/fixtures/${item.id}/items`,{method:"POST",headers:{"X-Admin-Key":adminKey},body:JSON.stringify({product_id:pid,shelf_level:0,slot})});}}
+       for(let slot=0;slot<item.products.length;slot++){const pid=item.products[slot];if(!liveIds.includes(pid)){await api(`/api/v1/admin/fixtures/${item.id}/items`,{method:"POST",body:JSON.stringify({product_id:pid,shelf_level:0,slot})});}}
      }
    }
    localStorage.removeItem(keyDraft);await load();setMessage("Layout published. The live store now includes your new fixtures and product placements.");setSelected("");
