@@ -35,12 +35,23 @@ def _add_missing(table_name, column):
         if column.name not in existing:
             op.add_column(table_name, column)
 
+ORDER_COLUMNS = {
+    "discount_amount": sa.Column("discount_amount", sa.Numeric(12, 2), nullable=False, server_default="0"),
+    "delivery_fee": sa.Column("delivery_fee", sa.Numeric(12, 2), nullable=False, server_default="0"),
+    "total": sa.Column("total", sa.Numeric(12, 2), nullable=False, server_default="0"),
+    "delivery_method": sa.Column("delivery_method", sa.String(20), nullable=False, server_default="delivery"),
+    "expected_delivery_window": sa.Column("expected_delivery_window", sa.String(120), nullable=True),
+    "proof_of_delivery": sa.Column("proof_of_delivery", sa.Text(), nullable=True),
+}
+
 def upgrade():
     bind = op.get_bind()
     for model in (SearchEvent, ProductReview, WishlistItem):
         model.__table__.create(bind=bind, checkfirst=True)
     for name, column in RICH_PRODUCT_COLUMNS.items():
         _add_missing("products", column)
+    for name, column in ORDER_COLUMNS.items():
+        _add_missing("orders", column)
     for table_name in TENANT_TABLES:
         _add_missing(table_name, sa.Column("tenant_id", sa.String(36), nullable=True))
     for table_name in ("products",) + TENANT_TABLES:
