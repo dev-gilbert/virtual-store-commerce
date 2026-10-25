@@ -45,6 +45,8 @@ function Scene({layout,onSelect,highlightedId}:{layout:Layout;onSelect:(id:strin
  const controls=useRef<OrbitControlsImpl|null>(null);
  const focusTarget=useRef(new Vector3(0,1,0));
  const {camera}=useThree();
+ const cameraRef=useRef(camera);
+ useEffect(()=>{cameraRef.current=camera},[camera]);
  useEffect(()=>{
   if(!highlightedId)return;
   for(const fixture of layout.items){
@@ -59,20 +61,21 @@ function Scene({layout,onSelect,highlightedId}:{layout:Layout;onSelect:(id:strin
   }
  },[highlightedId,layout]);
  useFrame((_,delta)=>{
+  const activeCamera=cameraRef.current;
   if(highlightedId&&controls.current){
    const alpha=1-Math.exp(-delta*2.2);
    controls.current.target.lerp(focusTarget.current,alpha);
    const destination=focusTarget.current.clone().add(new Vector3(3.2,2.1,3.2));
-   camera.position.lerp(destination,1-Math.exp(-delta*1.5));
+   activeCamera.position.lerp(destination,1-Math.exp(-delta*1.5));
   }
   for(const fixture of layout.items){
    const x=Number(fixture.position[0]??0),z=Number(fixture.position[2]??0);
    const halfX=fixture.kind==="refrigerator"?.95:fixture.kind==="checkout"||fixture.kind==="table"||fixture.kind==="display"?1.05:1.15;
    const halfZ=fixture.kind==="refrigerator"?.72:fixture.kind==="checkout"||fixture.kind==="table"||fixture.kind==="display"?.68:.68;
-   const dx=camera.position.x-x,dz=camera.position.z-z;
-   if(camera.position.y<2.8&&Math.abs(dx)<halfX+.28&&Math.abs(dz)<halfZ+.28){
-    if(Math.abs(dx)>Math.abs(dz))camera.position.x=x+Math.sign(dx||1)*(halfX+.28);
-    else camera.position.z=z+Math.sign(dz||1)*(halfZ+.28);
+   const dx=activeCamera.position.x-x,dz=activeCamera.position.z-z;
+   if(activeCamera.position.y<2.8&&Math.abs(dx)<halfX+.28&&Math.abs(dz)<halfZ+.28){
+    if(Math.abs(dx)>Math.abs(dz))activeCamera.position.x=x+Math.sign(dx||1)*(halfX+.28);
+    else activeCamera.position.z=z+Math.sign(dz||1)*(halfZ+.28);
    }
   }
   controls.current?.update();
