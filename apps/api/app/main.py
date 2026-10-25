@@ -220,7 +220,7 @@ class ProductPatch(BaseModel):
 class ProductOut(BaseModel):
  model_config=ConfigDict(from_attributes=True)
  id:str; sku:str; name:str; description:str; category:str; price:Decimal; currency:str; stock_quantity:int; image_url:str|None; color:str; active:bool
- brand:str=""; synonyms:str=""; unit:str="each"; ingredients:str=""; allergens:str=""; nutrition:str=""; gallery_json:str="[]"; video_url:str|None=None; discontinued:bool=False
+ brand:str=""; synonyms:str=""; unit:str="each"; ingredients:str=""; allergens:str=""; nutrition:str=""; gallery_json:str="[]"; video_url:str|None=None; discontinued:bool=False; average_rating:float|None=None
 class FixtureCreate(BaseModel):
  code:str=Field(min_length=2,max_length=80,pattern=r"^[A-Za-z0-9_-]+$")
  name:str=Field(min_length=2,max_length=160)
@@ -417,7 +417,12 @@ def products(
  if query_text:
   db.add(SearchEvent(query=query_text[:180],result_count=total))
   db.commit()
- return {"items":[ProductOut.model_validate(p).model_dump(mode="json") for p in page],"total":total,"limit":limit,"offset":offset,"alternatives":[ProductOut.model_validate(p).model_dump(mode="json") for p in (list(db.scalars(select(Product).where(Product.active.is_(True)).order_by(Product.popularity.desc()).limit(4))) if total==0 else [])]}
+ def serialize(product):
+  data=ProductOut.model_validate(product).model_dump(mode="json")
+  reviews=list(db.scalars(select(ProductReview.rating).where(ProductReview.product_id==product.id)))
+  data["average_rating"]=round(sum(reviews)/len(reviews),2) if reviews else None
+  return data
+ return {"items":[serialize(p) for p in page],"total":total,"limit":limit,"offset":offset,"alternatives":[serialize(p) for p in (list(db.scalars(select(Product).where(Product.active.is_(True)).order_by(Product.popularity.desc()).limit(4))) if total==0 else [])]}
 @app.get("/api/v1/products/{product_id}",response_model=ProductOut,tags=["Products"])
 def product_detail(product_id:str,db:Session=Depends(get_db)):
  p=db.get(Product,product_id)
