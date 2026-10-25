@@ -184,7 +184,7 @@ def ensure_order_customer_columns():
 async def lifespan(_):
  Base.metadata.create_all(bind=engine)
  ensure_order_customer_columns()
- with SessionLocal() as db: seed_data(db)
+ with SessionLocal() as db:\n  seed_data(db)\n  seed_platform_admin(db)
  yield
 app=FastAPI(title="Virtual Store Commerce API",version="0.2.0",description="Shared catalogue, 3D layout, cart, orders and sandbox payments.",lifespan=lifespan)
 app.add_middleware(CORSMiddleware,allow_origins=os.getenv("CORS_ORIGINS","http://localhost:3000").split(","),allow_credentials=True,allow_methods=["GET","POST","PATCH","DELETE","OPTIONS"],allow_headers=["Content-Type","Authorization","Idempotency-Key","X-Admin-Key"])
@@ -523,6 +523,14 @@ class ForgotPasswordInput(BaseModel):
  email:str
 class ResetPasswordInput(BaseModel):
  token:str=Field(min_length=20,max_length=256); password:str=Field(min_length=10,max_length=128)
+def seed_platform_admin(db:Session):
+ email=os.getenv("PLATFORM_ADMIN_EMAIL","").strip().lower()
+ password=os.getenv("PLATFORM_ADMIN_PASSWORD","")
+ if not email or not password:return
+ account=db.scalar(select(Account).where(Account.email==email))
+ if account:return
+ account=Account(name=os.getenv("PLATFORM_ADMIN_NAME","Platform Administrator"),email=email,password_hash=password_digest(password),role="platform_admin",store_name=None)
+ db.add(account);db.commit()
 def password_digest(password:str,salt:bytes|None=None)->str:
  salt=salt or secrets.token_bytes(16)
  digest=hashlib.scrypt(password.encode(),salt=salt,n=2**14,r=8,p=1,dklen=32)
