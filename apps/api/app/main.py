@@ -190,7 +190,7 @@ def ensure_tenant_columns():
  definitions={
   "products":"VARCHAR(36)","fixtures":"VARCHAR(36)","product_placements":"VARCHAR(36)","cart_items":"VARCHAR(36)","orders":"VARCHAR(36)",
   "promotions":"VARCHAR(36)","suppliers":"VARCHAR(36)","purchase_orders":"VARCHAR(36)","store_branches":"VARCHAR(36)","branch_inventory":"VARCHAR(36)",
-  "staff_members":"VARCHAR(36)","return_requests":"VARCHAR(36)","audit_events":"VARCHAR(36)","search_events":"VARCHAR(36)","product_reviews":"VARCHAR(36)","wishlist_items":"VARCHAR(36)"
+  "staff_members":"VARCHAR(36)","return_requests":"VARCHAR(36)","audit_events":"VARCHAR(36)","search_events":"VARCHAR(36)","product_reviews":"VARCHAR(36)","wishlist_items":"VARCHAR(36)","stock_movements":"VARCHAR(36)"
  }
  inspector=inspect(engine)
  with engine.begin() as connection:
