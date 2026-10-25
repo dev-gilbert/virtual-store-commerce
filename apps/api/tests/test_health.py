@@ -26,7 +26,7 @@ def test_cart_checkout_idempotency_and_sandbox_payment(client):
     cart=client.post(f"/api/v1/cart/items?session_id={session}",json={"product_id":product["id"],"quantity":1})
     assert cart.status_code==200 and cart.json()["item_count"]==1
     key=f"test-checkout-{uuid4()}"
-    r=client.post("/api/v1/checkout",headers={"Idempotency-Key":key},json={"session_id":session})
+    r=client.post("/api/v1/checkout",headers={"Idempotency-Key":key},json={"session_id":session,"customer_phone":"+250788123456","customer_name":"Test Customer","delivery_address":"Kigali"})
     assert r.status_code==200
     order=r.json()
     assert order["status"]=="pending_payment" and len(order["items"])==1
@@ -50,7 +50,7 @@ def test_cancelling_unpaid_order_releases_reserved_stock(client):
     original_stock=product["stock_quantity"]
     assert client.post(f"/api/v1/cart/items?session_id={session}",json={"product_id":product["id"],"quantity":1}).status_code==200
     order=client.post("/api/v1/checkout",headers={"Idempotency-Key":f"cancel-key-{uuid4()}"},
-                      json={"session_id":session}).json()
+                      json={"session_id":session,"customer_phone":"+250788123456","customer_name":"Test Customer","delivery_address":"Kigali"}).json()
     after_reservation=client.get(f"/api/v1/products/{product['id']}").json()["stock_quantity"]
     assert after_reservation==original_stock-1
     cancelled=client.post(f"/api/v1/orders/{order['id']}/cancel")
@@ -93,3 +93,30 @@ def test_product_search_filters_price_stock_and_sorts(client):
 def test_product_search_rejects_invalid_price_range(client):
     r=client.get("/api/v1/products",params={"min_price":"3000","max_price":"1000"})
     assert r.status_code==422
+
+def test_checkout_requires_phone_and_anonymous_checkout_can_skip_name_address(client):
+    session=f"contact-session-{uuid4()}"
+    product=client.get("/api/v1/products").json()["items"][0]
+    client.post(f"/api/v1/cart/items?session_id={session}",json={"product_id":product["id"],"quantity":1})
+    missing_phone=client.post("/api/v1/checkout",headers={"Idempotency-Key":f"missing-phone-{uuid4()}"},
+      json={"session_id":session,"customer_name":"Guest","delivery_address":"Kigali"})
+    assert missing_phone.status_code==422
+    missing_address=client.post("/api/v1/checkout",headers={"Idempotency-Key":f"missing-address-{uuid4()}"},
+      json={"session_id":session,"customer_phone":"+250788123456"})
+    assert missing_address.status_code==422
+    anonymous=client.post("/api/v1/checkout",headers={"Idempotency-Key":f"anonymous-{uuid4()}"},
+      json={"session_id":session,"customer_phone":"+250788123456","is_anonymous":True})
+    assert anonymous.status_code==200
+    assert anonymous.json()["is_anonymous"] is True
+    assert anonymous.json()["customer_phone"]=="+250788123456"
+    assert anonymous.json()["customer_name"] is None
+
+def test_orders_are_scoped_to_their_shopping_session(client):
+    session=f"private-session-{uuid4()}"
+    other=f"other-session-{uuid4()}"
+    product=client.get("/api/v1/products").json()["items"][0]
+    client.post(f"/api/v1/cart/items?session_id={session}",json={"product_id":product["id"],"quantity":1})
+    order=client.post("/api/v1/checkout",headers={"Idempotency-Key":f"private-{uuid4()}"},
+      json={"session_id":session,"customer_phone":"+250788123456","is_anonymous":True}).json()
+    assert client.get(f"/api/v1/orders/{order['id']}",params={"session_id":session}).status_code==200
+    assert client.get(f"/api/v1/orders/{order['id']}",params={"session_id":other}).status_code==404
