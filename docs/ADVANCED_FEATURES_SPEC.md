@@ -370,7 +370,7 @@ Use this tracker as a planning aid, not proof of implementation. Update each sta
 | F06 | Navigable 3D supermarket | P1 | Core slice implemented; full walk-through and optimization remain |
 | F07 | Search-to-shelf | P0 | Core slice implemented; camera navigation and route map remain |
 | F08 | Direct 3D interaction | P0 | Core slice implemented; automated interaction coverage remains |
-| F09 | Store map and shopping route | P2 | Planned |
+| F09 | Store map and shopping route | P2 | Partial: fixture-position aisle map and directory are available at `/store-map`; live customer position and multi-stop route planning remain |
 | F10 | Visual store builder | P1 | Core slice implemented; versioned publishing and validation remain |
 | F11 | Live inventory in 3D | P0 | Core slice implemented; expiry-based reservations and concurrency hardening remain |
 | F12 | Inventory management | P1 | Basic stock adjustment implemented; movement ledger and receiving remain |
@@ -390,6 +390,7 @@ The next ten roadmap areas targeted for delivery are **F02, F04, F05, F09, F14, 
 - **F02:** Shared product detail page at `/products/[productId]`, using the canonical product API and shared basket.
 - **F04:** Checkout delivery/contact capture and a customer `/orders` page showing saved order lines, delivery details, and payment/order status. Delivery scheduling, pickup, and staff-controlled fulfilment states remain open.
 - **F05:** Guest order history and reorder-from-history. Secure customer accounts, saved addresses, favourites, and cross-device access remain open.
+- **F09:** Fixture-position map and aisle directory at `/store-map`, linked from the shop. This is a layout directory, not a navigation engine; customer position and multi-stop routing remain open.
 
 F09 and F14-F19 remain open until their data models, backend authorization, user workflows, and automated tests are implemented. Do not mark them complete from planning or UI-only work.
 
