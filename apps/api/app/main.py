@@ -266,7 +266,7 @@ async def security_middleware(request:Request,call_next):
   recent.append(now);_auth_attempts[key]=recent
  cookie=request.cookies.get("vsc_session")
  csrf=request.cookies.get("vsc_csrf")
- if cookie:
+ if cookie and not request.headers.get("authorization"):
   if request.method not in ("GET","HEAD","OPTIONS"):
    header=request.headers.get("x-csrf-token")
    if not csrf or not header or not hmac.compare_digest(csrf,header):
@@ -681,9 +681,6 @@ def register_account(payload:RegisterInput,response:Response,db:Session=Depends(
 def login_account(payload:LoginInput,response:Response,db:Session=Depends(get_db)):
  account=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
  if not account or not account.active or not password_matches(payload.password,account.password_hash):raise HTTPException(401,"Email or password is incorrect")
- if account.role!="platform_admin" and account.store_id:
-  tenant=db.get(StoreTenant,account.store_id)
-  if not tenant or tenant.status!="approved": raise HTTPException(403,"Your store is awaiting platform approval")
  token=issue_account_token(account); csrf=secrets.token_urlsafe(32); production=os.getenv("APP_ENV","development").lower()=="production"
  response.set_cookie("vsc_session",token,httponly=True,secure=production,samesite="lax",max_age=43200,path="/")
  response.set_cookie("vsc_csrf",csrf,httponly=False,secure=production,samesite="lax",max_age=43200,path="/")
@@ -737,10 +734,8 @@ class StoreAdminInput(BaseModel):
  name:str|None=Field(default=None,min_length=2,max_length=180)
  plan:str|None=Field(default=None,pattern=r"^(starter|growth|business|enterprise)$")
  notes:str|None=Field(default=None,max_length=2000)
-def require_platform_admin(request:Request,authorization:str|None=Header(default=None),session_cookie:str|None=Cookie(default=None,alias="vsc_session"),csrf_cookie:str|None=Cookie(default=None,alias="vsc_csrf"),csrf_header:str|None=Header(default=None,alias="X-CSRF-Token"),db:Session=Depends(get_db))->Account:
- if not authorization and session_cookie and request.method not in ("GET","HEAD","OPTIONS"):
-  if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie,csrf_header): raise HTTPException(403,"CSRF token missing or invalid")
- account=account_from_token(authorization or ("Bearer "+session_cookie if session_cookie else None),db)
+def require_platform_admin(authorization:str|None=Header(default=None),db:Session=Depends(get_db))->Account:
+ account=account_from_token(authorization,db)
  if account.role!="platform_admin":raise HTTPException(403,"Platform administrator role required")
  return account
 @app.get("/api/v1/platform/stores",tags=["Platform Administration"])
