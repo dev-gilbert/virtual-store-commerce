@@ -322,8 +322,12 @@ def cancel_order(order_id:str,db:Session=Depends(get_db)):
   if p: p.stock_quantity+=item.quantity
  o.status="cancelled"; audit(db,"ORDER_CANCELLED_STOCK_RELEASED","order",o.id); db.commit()
  return {"order_id":o.id,"status":o.status}
-def require_admin(x_admin_key:str|None=Header(default=None,alias="X-Admin-Key")):
- if not x_admin_key or x_admin_key!=os.getenv("ADMIN_API_KEY","local-dev-admin-change-me"): raise HTTPException(401,"A valid X-Admin-Key is required")
+def require_admin(x_admin_key:str|None=Header(default=None,alias="X-Admin-Key"),authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ if x_admin_key and hmac.compare_digest(x_admin_key,os.getenv("ADMIN_API_KEY","local-dev-admin-change-me")): return True
+ if authorization and authorization.startswith("Bearer "):
+  account=account_from_token(authorization,db)
+  if account.role in ("store_owner","store_manager","platform_admin"): return True
+ raise HTTPException(401,"Sign in with an authorized store or platform account, or provide a valid development admin key")
 @app.post("/api/v1/admin/products",response_model=ProductOut,status_code=status.HTTP_201_CREATED,tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
 def create_product(payload:ProductCreate,db:Session=Depends(get_db)):
  p=Product(**payload.model_dump()); db.add(p)
