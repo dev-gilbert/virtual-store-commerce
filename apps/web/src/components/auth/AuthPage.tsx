@@ -8,7 +8,7 @@ function Form({mode,audience="store"}:{mode:Mode;audience?:"store"|"customer"}){
  const router=useRouter(),params=useSearchParams();
  const [name,setName]=useState(""),[storeName,setStoreName]=useState(""),[email,setEmail]=useState(params.get("email")??""),[password,setPassword]=useState(""),[token,setToken]=useState(params.get("token")??""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState(""),[devToken,setDevToken]=useState("");
  const titles={login:"Welcome back.",register:audience==="customer"?"Create your customer account.":"Open your store.",forgot:"Recover your account.",reset:"Choose a new password."};
- const subtitles={login:"Sign in to continue to your workspace.",register:"Create an owner account to start setting up your store.",forgot:"If your account exists, we'll help you recover access.",reset:"Use a valid, unexpired reset token to secure your account again."};
+ const subtitles={login:audience==="customer"?"Sign in to your shopping account.":"Sign in to continue to your workspace.",register:audience==="customer"?"Save addresses, favourites and shopping lists across your devices.":"Create an owner account to start setting up your store.",forgot:"If your account exists, we will help you recover access.",reset:"Use a valid, unexpired reset token to secure your account again."};
  async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError("");setMessage("");setDevToken("");try{
   if(mode==="login"||mode==="register"){
    const endpoint=mode==="login"?"/api/v1/auth/login":audience==="customer"?"/api/v1/customer/register":"/api/v1/auth/register";
