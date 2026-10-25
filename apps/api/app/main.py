@@ -25,6 +25,12 @@ class Product(Base):
  price:Mapped[Decimal]=mapped_column(Numeric(12,2)); currency:Mapped[str]=mapped_column(String(3),default="RWF")
  stock_quantity:Mapped[int]=mapped_column(Integer,default=0); image_url:Mapped[str|None]=mapped_column(String(500),nullable=True)
  color:Mapped[str]=mapped_column(String(16),default="#799d79"); active:Mapped[bool]=mapped_column(Boolean,default=True)
+ brand:Mapped[str]=mapped_column(String(120),default="",index=True); synonyms:Mapped[str]=mapped_column(Text,default="")
+ unit:Mapped[str]=mapped_column(String(40),default="each"); ingredients:Mapped[str]=mapped_column(Text,default="")
+ allergens:Mapped[str]=mapped_column(Text,default=""); nutrition:Mapped[str]=mapped_column(Text,default="")
+ gallery_json:Mapped[str]=mapped_column(Text,default="[]"); video_url:Mapped[str|None]=mapped_column(String(500),nullable=True)
+ discontinued:Mapped[bool]=mapped_column(Boolean,default=False); popularity:Mapped[int]=mapped_column(Integer,default=0)
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
 class Fixture(Base):
  __tablename__="fixtures"
@@ -61,6 +67,30 @@ class OrderItem(Base):
  order_id:Mapped[str]=mapped_column(ForeignKey("orders.id",ondelete="CASCADE"),index=True); product_id:Mapped[str]=mapped_column(String(36))
  sku:Mapped[str]=mapped_column(String(80)); product_name:Mapped[str]=mapped_column(String(180)); unit_price:Mapped[Decimal]=mapped_column(Numeric(12,2)); quantity:Mapped[int]=mapped_column(Integer)
  order:Mapped[Order]=relationship(back_populates="items")
+class SearchEvent(Base):
+ __tablename__="search_events"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ query:Mapped[str]=mapped_column(String(180),index=True)
+ result_count:Mapped[int]=mapped_column(Integer,default=0)
+ session_id:Mapped[str|None]=mapped_column(String(100),nullable=True,index=True)
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+class ProductReview(Base):
+ __tablename__="product_reviews"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ product_id:Mapped[str]=mapped_column(ForeignKey("products.id",ondelete="CASCADE"),index=True)
+ session_id:Mapped[str]=mapped_column(String(100),index=True)
+ rating:Mapped[int]=mapped_column(Integer)
+ title:Mapped[str]=mapped_column(String(180),default="")
+ body:Mapped[str]=mapped_column(String(2000),default="")
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ __table_args__=(UniqueConstraint("product_id","session_id",name="uq_review_product_session"),)
+class WishlistItem(Base):
+ __tablename__="wishlist_items"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ session_id:Mapped[str]=mapped_column(String(100),index=True)
+ product_id:Mapped[str]=mapped_column(ForeignKey("products.id",ondelete="CASCADE"),index=True)
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ __table_args__=(UniqueConstraint("session_id","product_id",name="uq_wishlist_session_product"),)
 class AuditEvent(Base):
  __tablename__="audit_events"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4())); event_type:Mapped[str]=mapped_column(String(100),index=True)
@@ -139,6 +169,7 @@ class ProductPatch(BaseModel):
 class ProductOut(BaseModel):
  model_config=ConfigDict(from_attributes=True)
  id:str; sku:str; name:str; description:str; category:str; price:Decimal; currency:str; stock_quantity:int; image_url:str|None; color:str; active:bool
+ brand:str=""; synonyms:str=""; unit:str="each"; ingredients:str=""; allergens:str=""; nutrition:str=""; gallery_json:str="[]"; video_url:str|None=None; discontinued:bool=False
 class FixtureCreate(BaseModel):
  code:str=Field(min_length=2,max_length=80,pattern=r"^[A-Za-z0-9_-]+$")
  name:str=Field(min_length=2,max_length=160)
@@ -186,6 +217,14 @@ def order_payload(o):
  return {"id":o.id,"status":o.status,"payment_status":o.payment_status,"subtotal":str(o.subtotal),"currency":o.currency,"created_at":o.created_at.isoformat(),"customer_name":o.customer_name,"customer_phone":o.customer_phone,"customer_email":o.customer_email,"delivery_address":o.delivery_address,"delivery_instructions":o.delivery_instructions,"is_anonymous":o.is_anonymous,
  "items":[{"product_id":i.product_id,"sku":i.sku,"name":i.product_name,"unit_price":str(i.unit_price),"quantity":i.quantity} for i in o.items],
  "payment":{"mode":"sandbox","next_action":f"/api/v1/payments/{o.id}/simulate-success"}}
+def ensure_product_rich_columns():
+ from sqlalchemy import inspect, text
+ inspector=inspect(engine)
+ existing={column["name"] for column in inspector.get_columns("products")} if inspector.has_table("products") else set()
+ columns={"brand":"VARCHAR(120) NOT NULL DEFAULT ''","synonyms":"TEXT NOT NULL DEFAULT ''","unit":"VARCHAR(40) NOT NULL DEFAULT 'each'","ingredients":"TEXT NOT NULL DEFAULT ''","allergens":"TEXT NOT NULL DEFAULT ''","nutrition":"TEXT NOT NULL DEFAULT ''","gallery_json":"TEXT NOT NULL DEFAULT '[]'","video_url":"VARCHAR(500)","discontinued":"BOOLEAN NOT NULL DEFAULT 0","popularity":"INTEGER NOT NULL DEFAULT 0","tenant_id":"VARCHAR(36)"}
+ with engine.begin() as connection:
+  for name,definition in columns.items():
+   if name not in existing: connection.execute(text(f"ALTER TABLE products ADD COLUMN {name} {definition}"))
 def ensure_account_store_columns():
  from sqlalchemy import inspect, text
  inspector=inspect(engine)
@@ -206,6 +245,7 @@ async def lifespan(_):
  Base.metadata.create_all(bind=engine)
  ensure_order_customer_columns()
  ensure_account_store_columns()
+ ensure_product_rich_columns()
  with SessionLocal() as db:
   seed_data(db)
   seed_platform_admin(db)
@@ -221,7 +261,8 @@ def products(
  min_price:Decimal|None=Query(default=None,ge=0),
  max_price:Decimal|None=Query(default=None,ge=0),
  in_stock:bool|None=Query(default=None),
- sort:str=Query(default="relevance",pattern=r"^(relevance|price_asc|price_desc|newest|name)$"),
+ brand:str|None=Query(default=None,max_length=120),
+ sort:str=Query(default="relevance",pattern=r"^(relevance|price_asc|price_desc|newest|name|popularity)$"),
  limit:int=Query(default=60,ge=1,le=100),
  offset:int=Query(default=0,ge=0),
  db:Session=Depends(get_db)):
@@ -233,13 +274,14 @@ def products(
  if min_price is not None: ps=[p for p in ps if p.price>=min_price]
  if max_price is not None: ps=[p for p in ps if p.price<=max_price]
  if in_stock is not None: ps=[p for p in ps if (p.stock_quantity>0)==in_stock]
+ if brand: ps=[p for p in ps if p.brand.casefold()==brand.casefold()]
  query_text=(q or "").strip().casefold()
  scored=[]
  synonyms={"strawberry":"strawberries","strawberries":"strawberry","soda":"drinks","beverage":"drinks","beverages":"drinks","milk":"dairy","bread":"bakery","soap":"home care","tea":"rwandan black tea"}
  if query_text:
   terms=query_text.split()
   for p in ps:
-   fields=[p.name,p.sku,p.category,p.description]
+   fields=[p.name,p.sku,p.category,p.description,p.brand,p.synonyms]
    haystack=" ".join(fields).casefold()
    tokens=set(haystack.replace("-"," ").replace("/"," ").split())
    score=0
@@ -259,10 +301,14 @@ def products(
  elif sort=="price_desc": ps.sort(key=lambda p:(-p.price,p.name.casefold()))
  elif sort=="newest": ps.sort(key=lambda p:p.created_at,reverse=True)
  elif sort=="name": ps.sort(key=lambda p:p.name.casefold())
+ elif sort=="popularity": ps.sort(key=lambda p:(-p.popularity,p.name.casefold()))
  elif not query_text: ps.sort(key=lambda p:(p.category.casefold(),p.name.casefold()))
  total=len(ps)
  page=ps[offset:offset+limit]
- return {"items":[ProductOut.model_validate(p).model_dump(mode="json") for p in page],"total":total,"limit":limit,"offset":offset}
+ if query_text:
+  db.add(SearchEvent(query=query_text[:180],result_count=total))
+  db.commit()
+ return {"items":[ProductOut.model_validate(p).model_dump(mode="json") for p in page],"total":total,"limit":limit,"offset":offset,"alternatives":[ProductOut.model_validate(p).model_dump(mode="json") for p in (ps[:4] if total==0 else [])]}
 @app.get("/api/v1/products/{product_id}",response_model=ProductOut,tags=["Products"])
 def product_detail(product_id:str,db:Session=Depends(get_db)):
  p=db.get(Product,product_id)
@@ -697,3 +743,87 @@ def platform_audit_events(limit:int=Query(default=100,ge=1,le=500),authorization
  require_platform_admin(authorization,db)
  rows=list(db.scalars(select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(limit)))
  return {"items":[{"id":e.id,"event_type":e.event_type,"entity_type":e.entity_type,"entity_id":e.entity_id,"details":e.details,"created_at":e.created_at.isoformat()} for e in rows],"total":len(rows)}
+
+# Discovery, customer engagement, fulfilment tracking, and receipt APIs.
+class ReviewInput(BaseModel):
+ session_id:str=Field(min_length=8,max_length=100)
+ rating:int=Field(ge=1,le=5)
+ title:str=Field(default="",max_length=180)
+ body:str=Field(default="",max_length=2000)
+class WishlistInput(BaseModel):
+ session_id:str=Field(min_length=8,max_length=100)
+ product_id:str
+class OrderStatusInput(BaseModel):
+ status:str=Field(pattern=r"^(confirmed|picking|packed|dispatched|delivered|failed_delivery|cancelled)$")
+ expected_delivery_window:str|None=Field(default=None,max_length=120)
+ proof_of_delivery:str|None=Field(default=None,max_length=1000)
+@app.get("/api/v1/search/suggestions",tags=["Product Discovery"])
+def search_suggestions(q:str=Query(min_length=1,max_length=100),limit:int=Query(default=6,ge=1,le=12),db:Session=Depends(get_db)):
+ term=q.strip().casefold()
+ products=list(db.scalars(select(Product).where(Product.active.is_(True))))
+ matches=[]
+ for p in products:
+  fields=[p.name,p.sku,p.category,p.brand,*[s.strip() for s in p.synonyms.split(",") if s.strip()]]
+  if any(term in field.casefold() for field in fields):matches.append({"type":"product","label":p.name,"product_id":p.id,"sku":p.sku,"category":p.category})
+ categories=sorted({p.category for p in products if term in p.category.casefold()})
+ matches.extend({"type":"category","label":x,"category":x} for x in categories)
+ unique=[];seen=set()
+ for item in matches:
+  key=(item["type"],item["label"].casefold())
+  if key not in seen:seen.add(key);unique.append(item)
+ return {"items":unique[:limit]}
+@app.get("/api/v1/search/analytics",tags=["Product Discovery"],dependencies=[Depends(require_admin)])
+def search_analytics(limit:int=Query(default=20,ge=1,le=100),db:Session=Depends(get_db)):
+ rows=list(db.scalars(select(SearchEvent).order_by(SearchEvent.created_at.desc()).limit(1000)))
+ popular={};empty={}
+ for row in rows:
+  popular[row.query]=popular.get(row.query,0)+1
+  if row.result_count==0:empty[row.query]=empty.get(row.query,0)+1
+ return {"popular":[{"query":k,"count":v} for k,v in sorted(popular.items(),key=lambda x:(-x[1],x[0]))[:limit]],"no_results":[{"query":k,"count":v} for k,v in sorted(empty.items(),key=lambda x:(-x[1],x[0]))[:limit]],"tracked_searches":len(rows)}
+@app.get("/api/v1/products/{product_id}/reviews",tags=["Product Discovery"])
+def product_reviews(product_id:str,db:Session=Depends(get_db)):
+ if not db.get(Product,product_id):raise HTTPException(404,"Product not found")
+ rows=list(db.scalars(select(ProductReview).where(ProductReview.product_id==product_id).order_by(ProductReview.created_at.desc())))
+ return {"items":[{"id":r.id,"rating":r.rating,"title":r.title,"body":r.body,"created_at":r.created_at.isoformat()} for r in rows],"total":len(rows),"average_rating":round(sum(r.rating for r in rows)/len(rows),2) if rows else None}
+@app.post("/api/v1/products/{product_id}/reviews",tags=["Product Discovery"])
+def create_product_review(product_id:str,payload:ReviewInput,db:Session=Depends(get_db)):
+ if not db.get(Product,product_id):raise HTTPException(404,"Product not found")
+ row=db.scalar(select(ProductReview).where(ProductReview.product_id==product_id,ProductReview.session_id==payload.session_id))
+ if row:row.rating=payload.rating;row.title=payload.title;row.body=payload.body
+ else:row=ProductReview(product_id=product_id,session_id=payload.session_id,rating=payload.rating,title=payload.title,body=payload.body);db.add(row)
+ try:db.commit()
+ except IntegrityError:db.rollback();raise HTTPException(409,"Review could not be saved")
+ return {"id":row.id,"product_id":product_id,"rating":row.rating,"title":row.title,"body":row.body}
+@app.get("/api/v1/wishlist",tags=["Customer Accounts"])
+def get_wishlist(session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ rows=list(db.scalars(select(WishlistItem).where(WishlistItem.session_id==session_id).order_by(WishlistItem.created_at.desc())))
+ return {"items":[ProductOut.model_validate(p).model_dump(mode="json") for r in rows if (p:=db.get(Product,r.product_id))],"total":len(rows)}
+@app.post("/api/v1/wishlist",tags=["Customer Accounts"])
+def add_wishlist(payload:WishlistInput,db:Session=Depends(get_db)):
+ product=db.get(Product,payload.product_id)
+ if not product or not product.active:raise HTTPException(404,"Product not found")
+ row=db.scalar(select(WishlistItem).where(WishlistItem.session_id==payload.session_id,WishlistItem.product_id==payload.product_id))
+ if not row:db.add(WishlistItem(session_id=payload.session_id,product_id=payload.product_id));db.commit()
+ return get_wishlist(payload.session_id,db)
+@app.delete("/api/v1/wishlist/{product_id}",tags=["Customer Accounts"])
+def remove_wishlist(product_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ row=db.scalar(select(WishlistItem).where(WishlistItem.session_id==session_id,WishlistItem.product_id==product_id))
+ if row:db.delete(row);db.commit()
+ return get_wishlist(session_id,db)
+@app.post("/api/v1/admin/orders/{order_id}/status",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def update_order_status(order_id:str,payload:OrderStatusInput,db:Session=Depends(get_db)):
+ order=db.get(Order,order_id)
+ if not order:raise HTTPException(404,"Order not found")
+ allowed={"pending_payment":{"confirmed","cancelled"},"confirmed":{"picking","cancelled"},"picking":{"packed","cancelled"},"packed":{"dispatched","cancelled"},"dispatched":{"delivered","failed_delivery"},"failed_delivery":{"dispatched","cancelled"}}
+ if payload.status==order.status:return {"order_id":order.id,"status":order.status,"message":"No status change"}
+ if payload.status not in allowed.get(order.status,set()):raise HTTPException(409,f"Cannot change order status from {order.status} to {payload.status}")
+ if payload.status=="confirmed" and order.payment_status!="paid":raise HTTPException(409,"Only paid orders can be confirmed")
+ order.status=payload.status
+ audit(db,"ORDER_FULFILMENT_STATUS_CHANGED","order",order.id,str({"status":payload.status,"expected_delivery_window":payload.expected_delivery_window,"proof_of_delivery":bool(payload.proof_of_delivery)}))
+ db.commit()
+ return {"order_id":order.id,"status":order.status,"expected_delivery_window":payload.expected_delivery_window,"proof_of_delivery":payload.proof_of_delivery}
+@app.get("/api/v1/orders/{order_id}/receipt",tags=["Orders"])
+def order_receipt(order_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ order=db.get(Order,order_id)
+ if not order or order.session_id!=session_id:raise HTTPException(404,"Order not found")
+ return {"receipt_number":"VSC-"+order.id[:8].upper(),"issued_at":order.created_at.isoformat(),"currency":order.currency,"subtotal":str(order.subtotal),"payment_status":order.payment_status,"order_status":order.status,"customer":{"name":order.customer_name,"phone":order.customer_phone,"email":order.customer_email,"address":order.delivery_address},"items":[{"sku":i.sku,"name":i.product_name,"unit_price":str(i.unit_price),"quantity":i.quantity,"line_total":str(i.unit_price*i.quantity)} for i in order.items]}
