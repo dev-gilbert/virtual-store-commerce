@@ -350,8 +350,8 @@ def require_admin(x_admin_key:str|None=Header(default=None,alias="X-Admin-Key"),
  if x_admin_key and hmac.compare_digest(x_admin_key,os.getenv("ADMIN_API_KEY","local-dev-admin-change-me")): return True
  if authorization and authorization.startswith("Bearer "):
   account=account_from_token(authorization,db)
-  if account.role in ("store_owner","store_manager","platform_admin"):
-   if account.role!="platform_admin" and account.store_id:
+  if account.role in ("store_owner","store_manager"):
+   if account.store_id:
     tenant=db.get(StoreTenant,account.store_id)
     if not tenant or tenant.status!="approved": raise HTTPException(403,"Store access is unavailable until the platform approves this store")
    return True
@@ -599,7 +599,7 @@ def register_account(payload:RegisterInput,db:Session=Depends(get_db)):
   db.commit()
  except IntegrityError:db.rollback();raise HTTPException(409,"An account with this email already exists")
  db.refresh(account);audit(db,"ACCOUNT_REGISTERED","account",account.id);db.commit()
- return {"token":issue_account_token(account),"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name}}
+ return {"token":issue_account_token(account),"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name,"store_id":account.store_id,"store_status":db.get(StoreTenant,account.store_id).status if account.store_id else None}}
 @app.post("/api/v1/auth/login",tags=["Authentication"])
 def login_account(payload:LoginInput,db:Session=Depends(get_db)):
  account=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
