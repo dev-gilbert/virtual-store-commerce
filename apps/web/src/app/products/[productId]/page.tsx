@@ -2,6 +2,7 @@
 import {use,useCallback,useEffect,useState} from "react";
 import Link from "next/link";
 import {api,getSessionId,type Cart,type Product} from "@/lib/commerce";
+export const instant = false;
 const money=(v:string|number,c="RWF")=>new Intl.NumberFormat("en-RW",{style:"currency",currency:c,maximumFractionDigits:0}).format(Number(v));
 export default function ProductPage({params}:{params:Promise<{productId:string}>}){
  const {productId:id}=use(params);
