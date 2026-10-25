@@ -217,6 +217,7 @@ class ReturnRequest(Base):
 
 
 tenant_scope=contextvars.ContextVar("virtual_store_tenant_scope",default=None)
+customer_scope=contextvars.ContextVar("virtual_store_customer_scope",default=None)
 TENANT_MODELS=(Product,Fixture,ProductPlacement,CartItem,Order,Promotion,Supplier,PurchaseOrder,StoreBranch,BranchInventory,StaffMember,ReturnRequest,AuditEvent,SearchEvent,ProductReview,WishlistItem,StockMovement,StoreLayoutVersion,CustomerAddress,CustomerSupportRequest,ShoppingList,ShoppingListItem)
 @event.listens_for(Session,"do_orm_execute")
 def apply_tenant_scope(execute_state):
