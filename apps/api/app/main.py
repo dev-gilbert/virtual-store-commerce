@@ -94,6 +94,15 @@ class WishlistItem(Base):
  product_id:Mapped[str]=mapped_column(ForeignKey("products.id",ondelete="CASCADE"),index=True)
  tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
  __table_args__=(UniqueConstraint("session_id","product_id",name="uq_wishlist_session_product"),)
+class StoreLayoutVersion(Base):
+ __tablename__="store_layout_versions"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ version_number:Mapped[int]=mapped_column(Integer,index=True)
+ status:Mapped[str]=mapped_column(String(20),default="draft",index=True)
+ layout_json:Mapped[str]=mapped_column(Text)
+ created_by:Mapped[str]=mapped_column(String(36),default="")
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 class StockMovement(Base):
  __tablename__="stock_movements"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
@@ -169,7 +178,7 @@ class ReturnRequest(Base):
 
 
 tenant_scope=contextvars.ContextVar("virtual_store_tenant_scope",default=None)
-TENANT_MODELS=(Product,Fixture,ProductPlacement,CartItem,Order,Promotion,Supplier,PurchaseOrder,StoreBranch,BranchInventory,StaffMember,ReturnRequest,AuditEvent,SearchEvent,ProductReview,WishlistItem,StockMovement)
+TENANT_MODELS=(Product,Fixture,ProductPlacement,CartItem,Order,Promotion,Supplier,PurchaseOrder,StoreBranch,BranchInventory,StaffMember,ReturnRequest,AuditEvent,SearchEvent,ProductReview,WishlistItem,StockMovement,StoreLayoutVersion)
 @event.listens_for(Session,"do_orm_execute")
 def apply_tenant_scope(execute_state):
  tenant_id=tenant_scope.get()
@@ -190,7 +199,7 @@ def ensure_tenant_columns():
  definitions={
   "products":"VARCHAR(36)","fixtures":"VARCHAR(36)","product_placements":"VARCHAR(36)","cart_items":"VARCHAR(36)","orders":"VARCHAR(36)",
   "promotions":"VARCHAR(36)","suppliers":"VARCHAR(36)","purchase_orders":"VARCHAR(36)","store_branches":"VARCHAR(36)","branch_inventory":"VARCHAR(36)",
-  "staff_members":"VARCHAR(36)","return_requests":"VARCHAR(36)","audit_events":"VARCHAR(36)","search_events":"VARCHAR(36)","product_reviews":"VARCHAR(36)","wishlist_items":"VARCHAR(36)","stock_movements":"VARCHAR(36)"
+  "staff_members":"VARCHAR(36)","return_requests":"VARCHAR(36)","audit_events":"VARCHAR(36)","search_events":"VARCHAR(36)","product_reviews":"VARCHAR(36)","wishlist_items":"VARCHAR(36)","stock_movements":"VARCHAR(36)","store_layout_versions":"VARCHAR(36)"
  }
  inspector=inspect(engine)
  with engine.begin() as connection:
