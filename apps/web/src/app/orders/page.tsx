@@ -3,7 +3,7 @@ import {useCallback,useEffect,useState} from "react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {API_BASE,api,getSessionId,listOrders,type Order} from "@/lib/commerce";
-const money=(v:string,c="RWF")=>new Intl.NumberFormat("en-RW",{style:"currency",currency:c,maximumFractionDigits:0}).format(Number(v));
+const money=(v:string|number,c="RWF")=>new Intl.NumberFormat("en-RW",{style:"currency",currency:c,maximumFractionDigits:0}).format(Number(v));
 const label=(v:string)=>v.replaceAll("_"," ");
 export default function OrdersPage(){
  const router=useRouter();
