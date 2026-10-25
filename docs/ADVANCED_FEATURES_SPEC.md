@@ -334,7 +334,29 @@ A feature is not done merely because a screen renders. It is done when:
 - Documentation and environment examples are updated.
 - No secret, fake payment confirmation, invented stock, or unverified production claim is introduced.
 
-## 8. Current status tracker
+## 8. First 10 implementation slices and verified status
+
+The following ten feature IDs are the first delivery set. The status below describes only the working core slice that is present in the repository, not every advanced requirement listed under that feature. Any unimplemented acceptance criteria remain open work. This distinction prevents an AI agent from mistaking a starter implementation for a production-complete feature.
+
+| # | Feature ID | Implemented core slice | Verification / remaining scope |
+|---:|---|---|---|
+| 1 | F01 Intelligent search and discovery | API supports query matching across name, SKU, category and description; basic synonyms/typo tolerance; category, price and stock filters; sorting and pagination. | API tests cover SKU/typo matching, price/stock filtering, sorting, and invalid price ranges. Brand/ratings/promotions filters, autocomplete, search analytics, and full 2D/3D API parity still need implementation. |
+| 2 | F03 Persistent basket and smart checkout | Shared server-side guest basket keyed by session, add/remove items, server-calculated subtotal, stock checks, idempotent checkout, stock reservation, and sandbox payment simulation. | CI tests cover checkout idempotency and sandbox payment. Cross-device signed-in baskets, quantity editing, coupons, delivery/tax totals, downloadable receipts, and consent-based reminders remain open. |
+| 3 | F06 Navigable 3D supermarket | Interactive Three.js/React Three Fiber scene with OrbitControls, fixture types, product textures, and 2D fallback route. | This is an orbit/inspect experience, not a complete walk-through simulator. Keyboard/touch movement, collision boundaries, low-end mode, and performance budgets remain open. |
+| 4 | F07 Search-to-shelf navigation | 3D search can match catalogue products, highlight a placed product, pulse its mesh, and show product selection details. | Existing 3D placement data supplies the target. Camera auto-navigation, aisle route/map, and alternative-product recommendations remain open. |
+| 5 | F08 Direct 3D product interaction | Clickable product meshes open the corresponding product details and allow adding to the shared basket; selected item is highlighted. | Manual interaction exists. Automated browser interaction tests and dense-shelf hit-target/accessibility hardening remain open. |
+| 6 | F10 Visual store builder | Admin can create supported fixture types, place/remove products at shelf levels/slots, and adjust basic fixture positions in the builder workflow. | Persistent versioned drafts, validated publish/rollback, true 3D draft preview, fixture dimensions/capacity, and aisle/overlap validation remain open. Do not describe this as a complete production layout publisher. |
+| 7 | F11 Live inventory in the virtual store | Canonical product stock and prices are returned in catalogue/layout APIs; out-of-stock items cannot be added; checkout validates stock and reserves it. | Basic reservation/release behaviour has tests for unpaid order cancellation. Reservation expiry, multi-warehouse inventory, and concurrency/load tests remain open. |
+| 8 | F12 Inventory management | Admin can increment/decrement product stock through a backend PATCH route and see updated stock in the catalogue. | This is basic stock adjustment only. Stock movement ledger, reason codes, supplier receipts, expiry/damage handling, reconciliation, and reservation reporting remain open. |
+| 9 | F13 Order management | API creates and retrieves orders, lists orders by guest session, supports cancellation of unpaid orders, and exposes basic admin order counts/status summaries. | A full staff order workbench, picking assignment, substitution workflow, verified real payment handling, refunds, and full fulfilment state machine remain open. |
+| 10 | F27 Production monitoring and recovery | A health endpoint reports API service status and the CI pipeline runs API tests, migration checks, frontend lint, and production build. | This is a baseline only. Centralized logs, alerting, queue/database monitoring, backup/restore drills, error tracking, and rollback automation remain open. |
+
+### Completion rule for this delivery set
+
+These ten items are marked **core slice implemented**, not **feature fully complete**. A feature may be marked fully implemented only when its full requirements and acceptance criteria above are satisfied and verified by tests. Keep remaining scope visible in follow-up tasks.
+
+## 9. Current status tracker
+
 
 Use this tracker as a planning aid, not proof of implementation. Update each status only after inspecting code and tests.
 
@@ -356,7 +378,7 @@ Use this tracker as a planning aid, not proof of implementation. Update each sta
 | F25-F28 | Payments/security/reliability | P0-P1 | Verify repository |
 | F29-F35 | SaaS, integrations, analytics, PWA | P2-P3 | Planned |
 
-## 9. First implementation task template
+## 10. First implementation task template
 
 Use this template when assigning work to an AI coding agent:
 
