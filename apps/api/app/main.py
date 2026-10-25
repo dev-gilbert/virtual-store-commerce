@@ -560,9 +560,10 @@ def checkout(payload:CheckoutInput,idempotency_key:str=Header(alias="Idempotency
  if subtotal<minimum_order:raise HTTPException(422,f"Minimum order subtotal is {minimum_order} RWF")
  discount=Decimal("0")
  if payload.coupon_code:
-  promo=db.scalar(select(Promotion).where(Promotion.code==payload.coupon_code.strip().upper(),Promotion.active.is_(True)))
+  promo=db.scalar(select(Promotion).where(Promotion.code==payload.coupon_code.strip().upper(),Promotion.active.is_(True)).with_for_update())
   now=datetime.now(timezone.utc).replace(tzinfo=None)
   if not promo:raise HTTPException(422,"Coupon code is invalid or inactive")
+  if promo.usage_limit is not None and promo.usage_count>=promo.usage_limit:raise HTTPException(422,"Coupon usage limit has been reached")
   if promo.starts_at and promo.starts_at>now:raise HTTPException(422,"Coupon is not active yet")
   if promo.ends_at and promo.ends_at<now:raise HTTPException(422,"Coupon has expired")
   if subtotal<promo.min_subtotal:raise HTTPException(422,f"Coupon requires a minimum subtotal of {promo.min_subtotal} RWF")
@@ -575,6 +576,7 @@ def checkout(payload:CheckoutInput,idempotency_key:str=Header(alias="Idempotency
   audit(db,"INVENTORY_RESERVED","product",p.id,f'{{"quantity":{qty},"order_id":"{order.id}"}}')
  for row in cart: db.delete(row)
  audit(db,"ORDER_CREATED","order",order.id,f'{{"subtotal":"{subtotal}","status":"pending_payment"}}')
+ if payload.coupon_code and promo:promo.usage_count+=1
  try: db.commit()
  except IntegrityError:
   db.rollback(); old=db.scalar(select(Order).where(Order.idempotency_key==idempotency_key))
@@ -721,7 +723,7 @@ class CsvImportInput(BaseModel):
  csv_text:str=Field(min_length=1,max_length=2_000_000)
 class PromotionInput(BaseModel):
  code:str=Field(min_length=3,max_length=40,pattern=r"^[A-Za-z0-9_-]+$")
- discount_percent:int=Field(ge=1,le=90); min_subtotal:Decimal=Field(default=Decimal("0"),ge=0)
+ discount_percent:int=Field(ge=1,le=90); min_subtotal:Decimal=Field(default=Decimal("0"),ge=0); usage_limit:int|None=Field(default=None,ge=1,le=1000000)
 class SupplierInput(BaseModel):
  name:str=Field(min_length=2,max_length=180); contact_name:str|None=None; phone:str|None=None; email:str|None=None
 class PurchaseOrderInput(BaseModel):
@@ -762,9 +764,9 @@ def import_products_csv(payload:CsvImportInput,db:Session=Depends(get_db)):
 def create_promotion(payload:PromotionInput,db:Session=Depends(get_db)):
  code=payload.code.upper()
  if db.scalar(select(Promotion.id).where(Promotion.code==code)): raise HTTPException(409,"Promotion code already exists")
- p=Promotion(code=code,discount_percent=payload.discount_percent,min_subtotal=payload.min_subtotal);db.add(p);db.commit();db.refresh(p)
+ p=Promotion(code=code,discount_percent=payload.discount_percent,min_subtotal=payload.min_subtotal,usage_limit=payload.usage_limit);db.add(p);db.commit();db.refresh(p)
  audit(db,"PROMOTION_CREATED","promotion",p.id);db.commit()
- return {"id":p.id,"code":p.code,"discount_percent":p.discount_percent,"min_subtotal":str(p.min_subtotal),"active":p.active}
+ return {"id":p.id,"code":p.code,"discount_percent":p.discount_percent,"min_subtotal":str(p.min_subtotal),"active":p.active,"usage_limit":p.usage_limit,"usage_count":p.usage_count}
 @app.get("/api/v1/promotions/{code}",tags=["Promotions"])
 def validate_promotion(code:str,subtotal:Decimal=Query(default=Decimal("0"),ge=0),db:Session=Depends(get_db)):
  p=db.scalar(select(Promotion).where(Promotion.code==code.upper(),Promotion.active.is_(True)))
