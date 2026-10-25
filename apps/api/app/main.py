@@ -1287,6 +1287,12 @@ def create_shopping_list(payload:ShoppingListCreateInput,account:Account=Depends
 def list_shopping_lists(account:Account=Depends(require_customer),db:Session=Depends(get_db)):
  rows=list(db.scalars(select(ShoppingList).where(ShoppingList.owner_account_id==account.id).order_by(ShoppingList.created_at.desc())))
  return {"items":[{"id":r.id,"name":r.name,"share_code":r.share_code,"created_at":r.created_at.isoformat(),"products":[{"product_id":i.product_id,"name":db.get(Product,i.product_id).name if db.get(Product,i.product_id) else "Unavailable","quantity":i.quantity} for i in db.scalars(select(ShoppingListItem).where(ShoppingListItem.shopping_list_id==r.id))]} for r in rows],"total":len(rows)}
+@app.get("/api/v1/customer/shared-lists/{share_code}",tags=["Customer Accounts"])
+def get_shared_shopping_list(share_code:str,account:Account=Depends(require_customer),db:Session=Depends(get_db)):
+ row=db.scalar(select(ShoppingList).where(ShoppingList.share_code==share_code))
+ if not row:raise HTTPException(404,"Shared shopping list not found")
+ items=list(db.scalars(select(ShoppingListItem).where(ShoppingListItem.shopping_list_id==row.id)))
+ return {"id":row.id,"name":row.name,"share_code":row.share_code,"items":[{"product_id":i.product_id,"name":db.get(Product,i.product_id).name if db.get(Product,i.product_id) else "Unavailable","quantity":i.quantity,"added_by":i.added_by} for i in items]}
 @app.post("/api/v1/customer/shared-lists/{share_code}/items",tags=["Customer Accounts"])
 def add_shared_list_item(share_code:str,payload:ShoppingListItemInput,account:Account=Depends(require_customer),db:Session=Depends(get_db)):
  row=db.scalar(select(ShoppingList).where(ShoppingList.share_code==share_code))
