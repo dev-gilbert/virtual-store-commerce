@@ -1,7 +1,7 @@
 "use client";
 export const API_BASE=process.env.NEXT_PUBLIC_API_BASE_URL??"http://localhost:8000";
 export function getSessionId(){if(typeof window==="undefined")return "server-session-placeholder";const key="virtual-store-session-id";let id=window.localStorage.getItem(key);if(!id){id=window.crypto?.randomUUID?.()??`guest-${Date.now()}-${Math.random().toString(36).slice(2)}`;window.localStorage.setItem(key,id)}return id}
-export async function api<T>(path:string,init?:RequestInit):Promise<T>{const r=await fetch(`${API_BASE}${path}`,{...init,headers:{"Content-Type":"application/json",...(init?.headers??{})},cache:"no-store"});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(typeof data.detail==="string"?data.detail:"The request could not be completed.");return data as T}
+export async function api<T>(path:string,init?:RequestInit):Promise<T>{const r=await fetch(`${API_BASE}${path}`,{...init,headers:{"Content-Type":"application/json",...(typeof window!=="undefined"&&window.localStorage.getItem("virtual-store-auth-token")?{"Authorization":"Bearer "+window.localStorage.getItem("virtual-store-auth-token")} : {}),...(init?.headers??{})},cache:"no-store"});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(typeof data.detail==="string"?data.detail:"The request could not be completed.");return data as T}
 export type Product={id:string;sku:string;name:string;description:string;category:string;price:string|number;currency:string;stock_quantity:number;image_url?:string|null;color:string;active:boolean};
 export type Cart={session_id:string;items:{product_id:string;sku:string;name:string;price:string;currency:string;quantity:number;line_total:string;stock_quantity:number}[];item_count:number;subtotal:string;currency:string};
 
