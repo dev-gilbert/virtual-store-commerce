@@ -1216,3 +1216,107 @@ def order_receipt_pdf(order_id:str,session_id:str=Query(min_length=8,max_length=
  story.append(Spacer(1,10));story.append(Paragraph("Payment processing is recorded by the configured store payment workflow. This receipt does not independently confirm settlement by an external payment provider.",styles["Italic"]))
  document.build(story);buffer.seek(0)
  return StreamingResponse(buffer,media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="receipt-{order.id[:8]}.pdf"'})
+
+# Customer accounts, saved addresses, shared lists, repeat purchases and support.
+class CustomerRegisterInput(BaseModel):
+ name:str=Field(min_length=2,max_length=180)
+ email:str=Field(min_length=5,max_length=254)
+ password:str=Field(min_length=10,max_length=128)
+class CustomerAddressInput(BaseModel):
+ label:str=Field(default="Home",max_length=80)
+ recipient_name:str=Field(min_length=2,max_length=180)
+ phone:str=Field(min_length=7,max_length=40)
+ address:str=Field(min_length=5,max_length=1000)
+ is_default:bool=False
+class CustomerSupportInput(BaseModel):
+ subject:str=Field(min_length=3,max_length=180)
+ message:str=Field(min_length=5,max_length=4000)
+ order_id:str|None=None
+class ShoppingListCreateInput(BaseModel):
+ name:str=Field(min_length=2,max_length=180)
+class ShoppingListItemInput(BaseModel):
+ product_id:str
+ quantity:int=Field(default=1,ge=1,le=99)
+def require_customer(authorization:str|None=Header(default=None),db:Session=Depends(get_db))->Account:
+ account=account_from_token(authorization,db)
+ if account.role!="customer":raise HTTPException(403,"Customer account required")
+ if account.store_id:
+  store=db.get(StoreTenant,account.store_id)
+  if not store or store.status!="approved":raise HTTPException(403,"This storefront is unavailable")
+ return account
+@app.post("/api/v1/customer/register",tags=["Customer Accounts"])
+def register_customer(payload:CustomerRegisterInput,response:Response,db:Session=Depends(get_db)):
+ email=payload.email.strip().lower()
+ if db.scalar(select(Account.id).where(Account.email==email)):raise HTTPException(409,"An account with this email already exists")
+ store_id=tenant_scope.get()
+ store=None
+ if store_id and store_id!="__public__":store=db.get(StoreTenant,store_id)
+ if os.getenv("APP_ENV","development").lower()=="production" and not store:raise HTTPException(400,"Select an approved store before creating a customer account")
+ if store and store.status!="approved":raise HTTPException(403,"This storefront is not available")
+ account=Account(name=payload.name.strip(),email=email,password_hash=password_digest(payload.password),role="customer",store_name=store.name if store else None,store_id=store.id if store else None)
+ db.add(account)
+ try:db.commit()
+ except IntegrityError:db.rollback();raise HTTPException(409,"An account with this email already exists")
+ db.refresh(account);token=issue_account_token(account);csrf=secrets.token_urlsafe(32);production=os.getenv("APP_ENV","development").lower()=="production"
+ response.set_cookie("vsc_session",token,httponly=True,secure=production,samesite="lax",max_age=43200,path="/")
+ response.set_cookie("vsc_csrf",csrf,httponly=False,secure=production,samesite="lax",max_age=43200,path="/")
+ return {"token":None if production else token,"csrf_token":csrf,"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_id":account.store_id}}
+@app.get("/api/v1/customer/addresses",tags=["Customer Accounts"])
+def list_customer_addresses(account:Account=Depends(require_customer),db:Session=Depends(get_db)):
+ rows=list(db.scalars(select(CustomerAddress).where(CustomerAddress.account_id==account.id).order_by(CustomerAddress.is_default.desc(),CustomerAddress.created_at.desc())))
+ return {"items":[{"id":r.id,"label":r.label,"recipient_name":r.recipient_name,"phone":r.phone,"address":r.address,"is_default":r.is_default} for r in rows],"total":len(rows)}
+@app.post("/api/v1/customer/addresses",tags=["Customer Accounts"])
+def save_customer_address(payload:CustomerAddressInput,account:Account=Depends(require_customer),db:Session=Depends(get_db)):
+ if payload.is_default:
+  for row in db.scalars(select(CustomerAddress).where(CustomerAddress.account_id==account.id)):row.is_default=False
+ address=CustomerAddress(account_id=account.id,**payload.model_dump());db.add(address);db.commit();db.refresh(address)
+ return {"id":address.id,"label":address.label,"recipient_name":address.recipient_name,"phone":address.phone,"address":address.address,"is_default":address.is_default}
+@app.delete("/api/v1/customer/addresses/{address_id}",tags=["Customer Accounts"])
+def delete_customer_address(address_id:str,account:Account=Depends(require_customer),db:Session=Depends(get_db)):
+ row=db.scalar(select(CustomerAddress).where(CustomerAddress.id==address_id,CustomerAddress.account_id==account.id))
+ if not row:raise HTTPException(404,"Saved address not found")
+ db.delete(row);db.commit();return {"deleted":True}
+@app.post("/api/v1/customer/shopping-lists",tags=["Customer Accounts"])
+def create_shopping_list(payload:ShoppingListCreateInput,account:Account=Depends(require_customer),db:Session=Depends(get_db)):
+ row=ShoppingList(owner_account_id=account.id,name=payload.name.strip());db.add(row);db.commit();db.refresh(row)
+ return {"id":row.id,"name":row.name,"share_code":row.share_code,"items":[]}
+@app.get("/api/v1/customer/shopping-lists",tags=["Customer Accounts"])
+def list_shopping_lists(account:Account=Depends(require_customer),db:Session=Depends(get_db)):
+ rows=list(db.scalars(select(ShoppingList).where(ShoppingList.owner_account_id==account.id).order_by(ShoppingList.created_at.desc())))
+ return {"items":[{"id":r.id,"name":r.name,"share_code":r.share_code,"created_at":r.created_at.isoformat(),"products":[{"product_id":i.product_id,"name":db.get(Product,i.product_id).name if db.get(Product,i.product_id) else "Unavailable","quantity":i.quantity} for i in db.scalars(select(ShoppingListItem).where(ShoppingListItem.shopping_list_id==r.id))]} for r in rows],"total":len(rows)}
+@app.post("/api/v1/customer/shared-lists/{share_code}/items",tags=["Customer Accounts"])
+def add_shared_list_item(share_code:str,payload:ShoppingListItemInput,account:Account=Depends(require_customer),db:Session=Depends(get_db)):
+ row=db.scalar(select(ShoppingList).where(ShoppingList.share_code==share_code))
+ if not row:raise HTTPException(404,"Shared shopping list not found")
+ product=db.get(Product,payload.product_id)
+ if not product or not product.active:raise HTTPException(404,"Product not found in this store")
+ item=db.scalar(select(ShoppingListItem).where(ShoppingListItem.shopping_list_id==row.id,ShoppingListItem.product_id==product.id))
+ if item:item.quantity=payload.quantity;item.added_by=account.id
+ else:db.add(ShoppingListItem(shopping_list_id=row.id,product_id=product.id,quantity=payload.quantity,added_by=account.id))
+ db.commit()
+ return {"list_id":row.id,"product_id":product.id,"quantity":payload.quantity,"added_by":account.id}
+@app.post("/api/v1/customer/orders/{order_id}/reorder",tags=["Customer Accounts"])
+def reorder_customer_order(order_id:str,account:Account=Depends(require_customer),db:Session=Depends(get_db)):
+ session_id="account:"+account.id
+ order=db.get(Order,order_id)
+ if not order or order.session_id!=session_id:raise HTTPException(404,"Order not found")
+ for item in order.items:
+  product=db.get(Product,item.product_id)
+  if not product or not product.active or product.stock_quantity<1:continue
+  cart_item=db.scalar(select(CartItem).where(CartItem.session_id==session_id,CartItem.product_id==product.id))
+  quantity=min(product.stock_quantity,item.quantity+(cart_item.quantity if cart_item else 0))
+  if cart_item:cart_item.quantity=quantity
+  else:db.add(CartItem(session_id=session_id,product_id=product.id,quantity=quantity))
+ db.commit();return cart_payload(db,session_id)
+@app.post("/api/v1/customer/support-requests",tags=["Customer Accounts"])
+def create_customer_support_request(payload:CustomerSupportInput,account:Account=Depends(require_customer),db:Session=Depends(get_db)):
+ if payload.order_id:
+  order=db.get(Order,payload.order_id)
+  if not order or order.session_id!="account:"+account.id:raise HTTPException(404,"Order not found")
+ request=CustomerSupportRequest(account_id=account.id,subject=payload.subject.strip(),message=payload.message.strip(),order_id=payload.order_id)
+ db.add(request);db.commit();db.refresh(request);audit(db,"CUSTOMER_SUPPORT_REQUESTED","support_request",request.id);db.commit()
+ return {"id":request.id,"subject":request.subject,"status":request.status,"created_at":request.created_at.isoformat()}
+@app.get("/api/v1/customer/support-requests",tags=["Customer Accounts"])
+def list_customer_support_requests(account:Account=Depends(require_customer),db:Session=Depends(get_db)):
+ rows=list(db.scalars(select(CustomerSupportRequest).where(CustomerSupportRequest.account_id==account.id).order_by(CustomerSupportRequest.created_at.desc())))
+ return {"items":[{"id":r.id,"subject":r.subject,"message":r.message,"status":r.status,"order_id":r.order_id,"created_at":r.created_at.isoformat()} for r in rows],"total":len(rows)}
