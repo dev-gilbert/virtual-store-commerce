@@ -219,6 +219,7 @@ class ReturnRequest(Base):
 
 tenant_scope=contextvars.ContextVar("virtual_store_tenant_scope",default=None)
 customer_scope=contextvars.ContextVar("virtual_store_customer_scope",default=None)
+role_scope=contextvars.ContextVar("virtual_store_role_scope",default=None)
 TENANT_MODELS=(Product,Fixture,ProductPlacement,CartItem,Order,Promotion,Supplier,PurchaseOrder,StoreBranch,BranchInventory,StaffMember,ReturnRequest,AuditEvent,SearchEvent,ProductReview,WishlistItem,StockMovement,StoreLayoutVersion,CustomerAddress,CustomerSupportRequest,ShoppingList,ShoppingListItem)
 @event.listens_for(Session,"do_orm_execute")
 def apply_tenant_scope(execute_state):
@@ -389,6 +390,7 @@ async def security_middleware(request:Request,call_next):
    request.scope["headers"].append((b"authorization",("Bearer "+cookie).encode()))
  scope_token=tenant_scope.set("__public__")
  customer_token=customer_scope.set(None)
+ role_token=role_scope.set(None)
  try:
   auth_header=request.headers.get("authorization")
   token_value=auth_header or cookie
@@ -399,6 +401,7 @@ async def security_middleware(request:Request,call_next):
    if account:
     tenant_scope.set(None if account.role=="platform_admin" else (account.store_id or "__public__"))
     customer_scope.set(account.id if account.role=="customer" else None)
+    role_scope.set(account.role)
   elif request.headers.get("x-store-id"):
    store_id=request.headers.get("x-store-id","")
    with SessionLocal() as store_db:
@@ -412,6 +415,7 @@ async def security_middleware(request:Request,call_next):
  finally:
   tenant_scope.reset(scope_token)
   customer_scope.reset(customer_token)
+  role_scope.reset(role_token)
 
 @app.get("/health/ready",tags=["Health"])
 def readiness_check(db:Session=Depends(get_db)):
