@@ -381,6 +381,7 @@ async def security_middleware(request:Request,call_next):
   if not request.headers.get("authorization"):
    request.scope["headers"].append((b"authorization",("Bearer "+cookie).encode()))
  scope_token=tenant_scope.set("__public__")
+ customer_token=customer_scope.set(None)
  try:
   auth_header=request.headers.get("authorization")
   token_value=auth_header or cookie
@@ -390,6 +391,7 @@ async def security_middleware(request:Request,call_next):
     except HTTPException:account=None
    if account:
     tenant_scope.set(None if account.role=="platform_admin" else (account.store_id or "__public__"))
+    customer_scope.set(account.id if account.role=="customer" else None)
   elif request.headers.get("x-store-id"):
    store_id=request.headers.get("x-store-id","")
    with SessionLocal() as store_db:
@@ -402,6 +404,7 @@ async def security_middleware(request:Request,call_next):
   return response
  finally:
   tenant_scope.reset(scope_token)
+  customer_scope.reset(customer_token)
 
 @app.get("/health",tags=["Operations"])
 def health(): return {"status":"ok","service":"virtual-store-commerce-api","database":"connected"}
