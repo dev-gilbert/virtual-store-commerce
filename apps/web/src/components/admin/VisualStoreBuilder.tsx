@@ -23,7 +23,7 @@ export default function VisualStoreBuilder(){
    const liveById=new Map(fixtures.map(f=>[f.id,f]));
    for(const item of items){
      if(item.id.startsWith("draft-")){
-       const kind=item.kind==="refrigerator"?"display":item.kind==="checkout"?"table":item.kind==="display"?"display":item.kind;
+       const kind=item.kind;
        const created=await api<{id:string}>("/api/v1/admin/fixtures",{method:"POST",headers:{"X-Admin-Key":adminKey},body:JSON.stringify({code:`LAYOUT-${item.id.slice(-8)}`,name:item.name,kind,x:item.x,y:0,z:item.z})});
        for(let slot=0;slot<item.products.length;slot++){await api(`/api/v1/admin/fixtures/${created.id}/items`,{method:"POST",headers:{"X-Admin-Key":adminKey},body:JSON.stringify({product_id:item.products[slot],shelf_level:0,slot})});}
      }else{
