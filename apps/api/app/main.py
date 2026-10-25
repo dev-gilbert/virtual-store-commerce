@@ -410,6 +410,20 @@ async def security_middleware(request:Request,call_next):
   tenant_scope.reset(scope_token)
   customer_scope.reset(customer_token)
 
+@app.get("/health/ready",tags=["Health"])
+def readiness_check(db:Session=Depends(get_db)):
+ try:
+  db.execute(select(1))
+  return {"status":"ready","database":"connected","schema":"checked"}
+ except Exception:
+  logging.exception("Readiness check failed")
+  raise HTTPException(503,"Database is not ready")
+@app.get("/api/v1/platform/system-health",tags=["Platform Administration"])
+def platform_system_health(authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ require_platform_admin(authorization,db)
+ try:db.execute(select(1));database="connected"
+ except Exception:database="unavailable"
+ return {"status":"healthy" if database=="connected" else "degraded","database":database,"environment":os.getenv("APP_ENV","development"),"auth_secret_configured":bool(os.getenv("AUTH_SECRET") and os.getenv("AUTH_SECRET")!="dev-only-change-this-secret"),"smtp_configured":bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_FROM")),"auth_rate_limit_buckets":len(_auth_attempts),"pending_store_approvals":db.scalar(select(func.count(StoreTenant.id)).where(StoreTenant.status=="pending")) or 0}
 @app.get("/health",tags=["Operations"])
 def health(): return {"status":"ok","service":"virtual-store-commerce-api","database":"connected"}
 @app.get("/api/v1/products",tags=["Products"])
