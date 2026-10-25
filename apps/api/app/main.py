@@ -929,7 +929,7 @@ def login_account(payload:LoginInput,response:Response,db:Session=Depends(get_db
 def account_me(authorization:str|None=Header(default=None),session_cookie:str|None=Cookie(default=None,alias="vsc_session"),db:Session=Depends(get_db)):
  a=account_from_token(authorization or ("Bearer "+session_cookie if session_cookie else None),db)
  tenant=db.get(StoreTenant,a.store_id) if a.store_id else None
- return {"id":a.id,"name":a.name,"email":a.email,"role":a.role,"store_name":a.store_name,"store_id":a.store_id,"store_status":tenant.status if tenant else None}
+ return {"id":a.id,"name":a.name,"email":a.email,"role":a.role,"store_name":a.store_name,"store_id":a.store_id,"store_status":tenant.status if tenant else None,"mfa_enabled":a.mfa_enabled}
 @app.post("/api/v1/auth/forgot-password",tags=["Authentication"])
 def forgot_password(payload:ForgotPasswordInput,db:Session=Depends(get_db)):
  a=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
