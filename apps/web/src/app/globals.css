@@ -267,3 +267,5 @@
 .customer-list-add input{min-width:0;flex:1;width:80px;border:1px solid #d8ddd4;border-radius:7px;padding:8px;font:inherit;font-size:12px}
 .customer-list-add input[type=number]{max-width:70px}
 @media(max-width:760px){.customer-account-grid{grid-template-columns:1fr}}
+
+.customer-list-add select{min-width:0;flex:1;width:80px;border:1px solid #d8ddd4;border-radius:7px;padding:8px;font:inherit;font-size:12px;background:#fff;color:#1c2421}
