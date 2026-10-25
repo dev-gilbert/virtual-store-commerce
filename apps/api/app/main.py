@@ -365,7 +365,7 @@ async def lifespan(_):
   seed_platform_admin(db)
  yield
 app=FastAPI(title="Virtual Store Commerce API",version="0.2.0",description="Shared catalogue, 3D layout, cart, orders and sandbox payments.",lifespan=lifespan)
-app.add_middleware(CORSMiddleware,allow_origins=os.getenv("CORS_ORIGINS","http://localhost:3000").split(","),allow_credentials=True,allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],allow_headers=["Content-Type","Authorization","Idempotency-Key","X-Admin-Key"])
+app.add_middleware(CORSMiddleware,allow_origins=os.getenv("CORS_ORIGINS","http://localhost:3000").split(","),allow_credentials=True,allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],allow_headers=["Content-Type","Authorization","Idempotency-Key","X-Admin-Key","X-CSRF-Token","X-Store-ID"])
 _auth_attempts={}
 @app.middleware("http")
 async def security_middleware(request:Request,call_next):
@@ -438,6 +438,7 @@ def products(
  in_stock:bool|None=Query(default=None),
  brand:str|None=Query(default=None,max_length=120),
  min_rating:float|None=Query(default=None,ge=0,le=5),
+ promoted:bool|None=Query(default=None),
  sort:str=Query(default="relevance",pattern=r"^(relevance|price_asc|price_desc|newest|name|popularity)$"),
  limit:int=Query(default=60,ge=1,le=100),
  offset:int=Query(default=0,ge=0),
@@ -451,6 +452,11 @@ def products(
  if max_price is not None: ps=[p for p in ps if p.price<=max_price]
  if in_stock is not None: ps=[p for p in ps if (p.stock_quantity>0)==in_stock]
  if brand: ps=[p for p in ps if p.brand.casefold()==brand.casefold()]
+ if promoted is not None:
+  now=datetime.now(timezone.utc).replace(tzinfo=None)
+  active_promotions=list(db.scalars(select(Promotion).where(Promotion.active.is_(True))))
+  has_active_promotion=any((not promo.starts_at or promo.starts_at<=now) and (not promo.ends_at or promo.ends_at>=now) for promo in active_promotions)
+  ps=ps if (promoted and has_active_promotion) or (not promoted and not has_active_promotion) else []
  if min_rating is not None:
   reviews=list(db.scalars(select(ProductReview).where(ProductReview.product_id.in_([p.id for p in ps])))) if ps else []
   ratings={}
@@ -487,8 +493,12 @@ def products(
  total=len(ps)
  page=ps[offset:offset+limit]
  if query_text:
-  db.add(SearchEvent(query=query_text[:180],result_count=total))
-  db.commit()
+  try:
+   db.add(SearchEvent(query=query_text[:180],result_count=total))
+   db.commit()
+  except Exception:
+   db.rollback()
+   logging.exception("Search analytics write failed; returning catalogue results anyway")
  def serialize(product):
   data=ProductOut.model_validate(product).model_dump(mode="json")
   reviews=list(db.scalars(select(ProductReview.rating).where(ProductReview.product_id==product.id)))
@@ -858,7 +868,7 @@ def approve_refund(return_id:str,db:Session=Depends(get_db)):
 class RegisterInput(BaseModel):
  name:str=Field(min_length=2,max_length=180); email:str=Field(min_length=5,max_length=254); password:str=Field(min_length=10,max_length=128); store_name:str|None=Field(default=None,max_length=180)
 class LoginInput(BaseModel):
- email:str; password:str
+ email:str; password:str; otp:str|None=None
 class ForgotPasswordInput(BaseModel):
  email:str
 class ResetPasswordInput(BaseModel):
@@ -920,6 +930,9 @@ def register_account(payload:RegisterInput,response:Response,db:Session=Depends(
 def login_account(payload:LoginInput,response:Response,db:Session=Depends(get_db)):
  account=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
  if not account or not account.active or not password_matches(payload.password,account.password_hash):raise HTTPException(401,"Email or password is incorrect")
+ if account.store_id and account.role!="platform_admin":
+  tenant=db.get(StoreTenant,account.store_id)
+  if not tenant or tenant.status!="approved":raise HTTPException(403,"Your store is awaiting platform approval or is not currently available")
  if account.mfa_enabled and (not payload.otp or not account.mfa_secret or not pyotp.TOTP(account.mfa_secret).verify(payload.otp,valid_window=1)):raise HTTPException(401,"A valid multi-factor authentication code is required")
  token=issue_account_token(account); csrf=secrets.token_urlsafe(32); production=os.getenv("APP_ENV","development").lower()=="production"
  response.set_cookie("vsc_session",token,httponly=True,secure=production,samesite="lax",max_age=43200,path="/")
