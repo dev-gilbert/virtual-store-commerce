@@ -1049,17 +1049,20 @@ def create_product_review(product_id:str,payload:ReviewInput,db:Session=Depends(
  return {"id":row.id,"product_id":product_id,"rating":row.rating,"title":row.title,"body":row.body}
 @app.get("/api/v1/wishlist",tags=["Customer Accounts"])
 def get_wishlist(session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ session_id=effective_session_id(session_id)
  rows=list(db.scalars(select(WishlistItem).where(WishlistItem.session_id==session_id).order_by(WishlistItem.created_at.desc())))
  return {"items":[ProductOut.model_validate(p).model_dump(mode="json") for r in rows if (p:=db.get(Product,r.product_id))],"total":len(rows)}
 @app.post("/api/v1/wishlist",tags=["Customer Accounts"])
 def add_wishlist(payload:WishlistInput,db:Session=Depends(get_db)):
+ session_id=effective_session_id(payload.session_id)
  product=db.get(Product,payload.product_id)
  if not product or not product.active:raise HTTPException(404,"Product not found")
- row=db.scalar(select(WishlistItem).where(WishlistItem.session_id==payload.session_id,WishlistItem.product_id==payload.product_id))
- if not row:db.add(WishlistItem(session_id=payload.session_id,product_id=payload.product_id));db.commit()
- return get_wishlist(payload.session_id,db)
+ row=db.scalar(select(WishlistItem).where(WishlistItem.session_id==session_id,WishlistItem.product_id==payload.product_id))
+ if not row:db.add(WishlistItem(session_id=session_id,product_id=payload.product_id));db.commit()
+ return get_wishlist(session_id,db)
 @app.delete("/api/v1/wishlist/{product_id}",tags=["Customer Accounts"])
 def remove_wishlist(product_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ session_id=effective_session_id(session_id)
  row=db.scalar(select(WishlistItem).where(WishlistItem.session_id==session_id,WishlistItem.product_id==product_id))
  if row:db.delete(row);db.commit()
  return get_wishlist(session_id,db)
