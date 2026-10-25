@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os, uuid, hmac, hashlib, secrets, base64, time, smtplib, contextvars, json, io, logging
+import pyotp
 from decimal import InvalidOperation
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -140,7 +141,7 @@ class Account(Base):
  name:Mapped[str]=mapped_column(String(180)); email:Mapped[str]=mapped_column(String(254),unique=True,index=True)
  password_hash:Mapped[str]=mapped_column(String(256)); role:Mapped[str]=mapped_column(String(32),default="store_owner")
  store_name:Mapped[str|None]=mapped_column(String(180),nullable=True); active:Mapped[bool]=mapped_column(Boolean,default=True)
- store_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
+ store_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True); mfa_secret:Mapped[str|None]=mapped_column(String(64),nullable=True); mfa_enabled:Mapped[bool]=mapped_column(Boolean,default=False)
  reset_token_hash:Mapped[str|None]=mapped_column(String(64),nullable=True); reset_expires_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
 
@@ -337,6 +338,8 @@ def ensure_account_store_columns():
  existing={column["name"] for column in inspector.get_columns("accounts")} if inspector.has_table("accounts") else set()
  with engine.begin() as connection:
   if "store_id" not in existing: connection.execute(text("ALTER TABLE accounts ADD COLUMN store_id VARCHAR(36)"))
+  if "mfa_secret" not in existing: connection.execute(text("ALTER TABLE accounts ADD COLUMN mfa_secret VARCHAR(64)"))
+  if "mfa_enabled" not in existing: connection.execute(text("ALTER TABLE accounts ADD COLUMN mfa_enabled BOOLEAN NOT NULL DEFAULT 0"))
 
 def ensure_order_customer_columns():
  from sqlalchemy import inspect, text
@@ -917,6 +920,7 @@ def register_account(payload:RegisterInput,response:Response,db:Session=Depends(
 def login_account(payload:LoginInput,response:Response,db:Session=Depends(get_db)):
  account=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
  if not account or not account.active or not password_matches(payload.password,account.password_hash):raise HTTPException(401,"Email or password is incorrect")
+ if account.mfa_enabled and (not payload.otp or not account.mfa_secret or not pyotp.TOTP(account.mfa_secret).verify(payload.otp,valid_window=1)):raise HTTPException(401,"A valid multi-factor authentication code is required")
  token=issue_account_token(account); csrf=secrets.token_urlsafe(32); production=os.getenv("APP_ENV","development").lower()=="production"
  response.set_cookie("vsc_session",token,httponly=True,secure=production,samesite="lax",max_age=43200,path="/")
  response.set_cookie("vsc_csrf",csrf,httponly=False,secure=production,samesite="lax",max_age=43200,path="/")
@@ -1359,3 +1363,26 @@ def create_customer_support_request(payload:CustomerSupportInput,account:Account
 def list_customer_support_requests(account:Account=Depends(require_customer),db:Session=Depends(get_db)):
  rows=list(db.scalars(select(CustomerSupportRequest).where(CustomerSupportRequest.account_id==account.id).order_by(CustomerSupportRequest.created_at.desc())))
  return {"items":[{"id":r.id,"subject":r.subject,"message":r.message,"status":r.status,"order_id":r.order_id,"created_at":r.created_at.isoformat()} for r in rows],"total":len(rows)}
+
+class MfaVerifyInput(BaseModel):
+ otp:str=Field(min_length=6,max_length=8)
+@app.post("/api/v1/auth/mfa/setup",tags=["Authentication"])
+def setup_mfa(authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ account=account_from_token(authorization,db)
+ if account.mfa_enabled:raise HTTPException(409,"MFA is already enabled")
+ account.mfa_secret=pyotp.random_base32();db.commit()
+ return {"secret":account.mfa_secret,"otpauth_uri":pyotp.TOTP(account.mfa_secret).provisioning_uri(name=account.email,issuer_name="Virtual Store Commerce"),"message":"Add this account to an authenticator app, then verify a code to enable MFA."}
+@app.post("/api/v1/auth/mfa/enable",tags=["Authentication"])
+def enable_mfa(payload:MfaVerifyInput,authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ account=account_from_token(authorization,db)
+ if not account.mfa_secret:raise HTTPException(409,"Start MFA setup first")
+ if not pyotp.TOTP(account.mfa_secret).verify(payload.otp,valid_window=1):raise HTTPException(422,"Authenticator code is invalid")
+ account.mfa_enabled=True;db.commit();audit(db,"MFA_ENABLED","account",account.id);db.commit()
+ return {"enabled":True}
+@app.post("/api/v1/auth/mfa/disable",tags=["Authentication"])
+def disable_mfa(payload:MfaVerifyInput,authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ account=account_from_token(authorization,db)
+ if not account.mfa_enabled or not account.mfa_secret:raise HTTPException(409,"MFA is not enabled")
+ if not pyotp.TOTP(account.mfa_secret).verify(payload.otp,valid_window=1):raise HTTPException(422,"Authenticator code is invalid")
+ account.mfa_enabled=False;account.mfa_secret=None;db.commit();audit(db,"MFA_DISABLED","account",account.id);db.commit()
+ return {"enabled":False}
