@@ -230,3 +230,10 @@
 .product-related-grid a{display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid #e1e3dc;border-radius:12px;background:#fff}
 .product-related-grid a strong{font-size:14px}.product-related-grid a span{font-weight:700}
 @media(max-width:700px){.product-rich-grid{grid-template-columns:1fr}.product-related-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.product-rich-details{padding:18px}}
+
+
+.basket-quantity-controls{display:flex;align-items:center;gap:8px;margin-top:7px}
+.basket-quantity-controls button{display:grid;place-items:center;width:26px;height:26px;border:1px solid #d8ddd4;background:#fffefa;border-radius:7px;cursor:pointer;font-size:16px}
+.basket-quantity-controls button:disabled{opacity:.4;cursor:not-allowed}
+.basket-quantity-controls span{font-size:13px;min-width:14px;text-align:center}
+.checkout-details select{width:100%;padding:10px 11px;border:1px solid #d8ddd4;border-radius:8px;background:#fffefa;color:#1c2421;font:inherit}
