@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os, uuid
+from decimal import InvalidOperation
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -65,6 +66,40 @@ class AuditEvent(Base):
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4())); event_type:Mapped[str]=mapped_column(String(100),index=True)
  entity_type:Mapped[str]=mapped_column(String(80)); entity_id:Mapped[str]=mapped_column(String(36),index=True); details:Mapped[str]=mapped_column(Text,default="{}")
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+
+class Promotion(Base):
+ __tablename__="promotions"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ code:Mapped[str]=mapped_column(String(40),unique=True,index=True); discount_percent:Mapped[int]=mapped_column(Integer)
+ active:Mapped[bool]=mapped_column(Boolean,default=True); min_subtotal:Mapped[Decimal]=mapped_column(Numeric(12,2),default=0)
+ starts_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True); ends_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
+class Supplier(Base):
+ __tablename__="suppliers"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ name:Mapped[str]=mapped_column(String(180)); contact_name:Mapped[str|None]=mapped_column(String(180),nullable=True); phone:Mapped[str|None]=mapped_column(String(40),nullable=True); email:Mapped[str|None]=mapped_column(String(254),nullable=True); active:Mapped[bool]=mapped_column(Boolean,default=True)
+class PurchaseOrder(Base):
+ __tablename__="purchase_orders"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ supplier_id:Mapped[str]=mapped_column(ForeignKey("suppliers.id"),index=True); product_id:Mapped[str]=mapped_column(ForeignKey("products.id"),index=True)
+ quantity:Mapped[int]=mapped_column(Integer); unit_cost:Mapped[Decimal]=mapped_column(Numeric(12,2)); status:Mapped[str]=mapped_column(String(24),default="draft"); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+class StoreBranch(Base):
+ __tablename__="store_branches"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ code:Mapped[str]=mapped_column(String(40),unique=True,index=True); name:Mapped[str]=mapped_column(String(180)); address:Mapped[str]=mapped_column(String(500),default=""); active:Mapped[bool]=mapped_column(Boolean,default=True)
+class BranchInventory(Base):
+ __tablename__="branch_inventory"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ branch_id:Mapped[str]=mapped_column(ForeignKey("store_branches.id"),index=True); product_id:Mapped[str]=mapped_column(ForeignKey("products.id"),index=True); quantity:Mapped[int]=mapped_column(Integer,default=0)
+ __table_args__=(UniqueConstraint("branch_id","product_id",name="uq_branch_product"),)
+class StaffMember(Base):
+ __tablename__="staff_members"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ name:Mapped[str]=mapped_column(String(180)); email:Mapped[str]=mapped_column(String(254),unique=True,index=True); role:Mapped[str]=mapped_column(String(30),default="viewer"); active:Mapped[bool]=mapped_column(Boolean,default=True)
+class ReturnRequest(Base):
+ __tablename__="return_requests"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ order_id:Mapped[str]=mapped_column(ForeignKey("orders.id"),index=True); reason:Mapped[str]=mapped_column(String(500)); status:Mapped[str]=mapped_column(String(24),default="requested"); refund_amount:Mapped[Decimal]=mapped_column(Numeric(12,2),default=0); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+
 def get_db()->Generator[Session,None,None]:
  db=SessionLocal()
  try: yield db
@@ -332,3 +367,135 @@ def admin_summary(db:Session=Depends(get_db)):
 def audit_events(limit:int=Query(default=50,ge=1,le=200),db:Session=Depends(get_db)):
  es=list(db.scalars(select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(limit)))
  return {"items":[{"id":e.id,"event_type":e.event_type,"entity_type":e.entity_type,"entity_id":e.entity_id,"details":e.details,"created_at":e.created_at.isoformat()} for e in es],"total":len(es)}
+
+
+# Advanced retailer operations. All writes use the same canonical product/order records.
+class CsvImportInput(BaseModel):
+ csv_text:str=Field(min_length=1,max_length=2_000_000)
+class PromotionInput(BaseModel):
+ code:str=Field(min_length=3,max_length=40,pattern=r"^[A-Za-z0-9_-]+$")
+ discount_percent:int=Field(ge=1,le=90); min_subtotal:Decimal=Field(default=Decimal("0"),ge=0)
+class SupplierInput(BaseModel):
+ name:str=Field(min_length=2,max_length=180); contact_name:str|None=None; phone:str|None=None; email:str|None=None
+class PurchaseOrderInput(BaseModel):
+ supplier_id:str; product_id:str; quantity:int=Field(ge=1,le=100000); unit_cost:Decimal=Field(gt=0)
+class BranchInput(BaseModel):
+ code:str=Field(min_length=2,max_length=40,pattern=r"^[A-Za-z0-9_-]+$"); name:str=Field(min_length=2,max_length=180); address:str=Field(default="",max_length=500)
+class BranchStockInput(BaseModel):
+ product_id:str; quantity:int=Field(ge=0,le=1000000)
+class StaffInput(BaseModel):
+ name:str=Field(min_length=2,max_length=180); email:str=Field(min_length=5,max_length=254); role:str=Field(default="viewer",pattern=r"^(viewer|inventory|manager)$")
+class ReturnInput(BaseModel):
+ order_id:str; reason:str=Field(min_length=5,max_length=500)
+@app.post("/api/v1/admin/products/import-csv",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def import_products_csv(payload:CsvImportInput,db:Session=Depends(get_db)):
+ import csv,io
+ reader=csv.DictReader(io.StringIO(payload.csv_text))
+ required={"sku","name","category","price","stock_quantity"}
+ if not reader.fieldnames or not required.issubset(set(reader.fieldnames)): raise HTTPException(422,"CSV headers must include sku,name,category,price,stock_quantity; description and color are optional")
+ created=updated=0; errors=[]
+ for line,row in enumerate(reader,start=2):
+  try:
+   sku=(row.get("sku") or "").strip(); name=(row.get("name") or "").strip()
+   if len(sku)<2 or len(name)<2: raise ValueError("sku and name are required")
+   price=Decimal(row["price"]); stock=int(row["stock_quantity"])
+   if price<=0 or stock<0: raise ValueError("price must be positive and stock cannot be negative")
+   p=db.scalar(select(Product).where(Product.sku==sku))
+   if p:
+    p.name=name;p.category=(row.get("category") or "General").strip();p.price=price;p.stock_quantity=stock;p.description=(row.get("description") or "").strip();p.color=(row.get("color") or p.color).strip();updated+=1
+   else:
+    p=Product(sku=sku,name=name,category=(row.get("category") or "General").strip(),price=price,stock_quantity=stock,description=(row.get("description") or "").strip(),color=(row.get("color") or "#799d79").strip());db.add(p);created+=1
+  except (ValueError,KeyError,InvalidOperation) as exc:
+   errors.append({"line":line,"error":str(exc)})
+  except IntegrityError:
+   db.rollback();errors.append({"line":line,"error":"SKU conflicts with an existing record"})
+ db.commit();audit(db,"PRODUCTS_CSV_IMPORTED","catalogue","csv-import",str({"created":created,"updated":updated,"errors":len(errors)}));db.commit()
+ return {"created":created,"updated":updated,"error_count":len(errors),"errors":errors[:100]}
+@app.post("/api/v1/admin/promotions",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def create_promotion(payload:PromotionInput,db:Session=Depends(get_db)):
+ code=payload.code.upper()
+ if db.scalar(select(Promotion.id).where(Promotion.code==code)): raise HTTPException(409,"Promotion code already exists")
+ p=Promotion(code=code,discount_percent=payload.discount_percent,min_subtotal=payload.min_subtotal);db.add(p);db.commit();db.refresh(p)
+ audit(db,"PROMOTION_CREATED","promotion",p.id);db.commit()
+ return {"id":p.id,"code":p.code,"discount_percent":p.discount_percent,"min_subtotal":str(p.min_subtotal),"active":p.active}
+@app.get("/api/v1/promotions/{code}",tags=["Promotions"])
+def validate_promotion(code:str,subtotal:Decimal=Query(default=Decimal("0"),ge=0),db:Session=Depends(get_db)):
+ p=db.scalar(select(Promotion).where(Promotion.code==code.upper(),Promotion.active.is_(True)))
+ if not p: raise HTTPException(404,"Promotion code is invalid or inactive")
+ if subtotal<p.min_subtotal: raise HTTPException(422,f"Minimum basket subtotal is {p.min_subtotal}")
+ discount=(subtotal*Decimal(p.discount_percent)/Decimal(100)).quantize(Decimal("0.01"))
+ return {"code":p.code,"discount_percent":p.discount_percent,"subtotal":str(subtotal),"discount":str(discount),"total":str(subtotal-discount)}
+@app.post("/api/v1/admin/suppliers",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def create_supplier(payload:SupplierInput,db:Session=Depends(get_db)):
+ s=Supplier(**payload.model_dump());db.add(s);db.commit();db.refresh(s);audit(db,"SUPPLIER_CREATED","supplier",s.id);db.commit()
+ return {"id":s.id,"name":s.name,"contact_name":s.contact_name,"phone":s.phone,"email":s.email,"active":s.active}
+@app.get("/api/v1/admin/suppliers",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def list_suppliers(db:Session=Depends(get_db)):
+ return {"items":[{"id":s.id,"name":s.name,"contact_name":s.contact_name,"phone":s.phone,"email":s.email,"active":s.active} for s in db.scalars(select(Supplier).order_by(Supplier.name))]}
+@app.post("/api/v1/admin/purchase-orders",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def create_purchase_order(payload:PurchaseOrderInput,db:Session=Depends(get_db)):
+ if not db.get(Supplier,payload.supplier_id): raise HTTPException(404,"Supplier not found")
+ if not db.get(Product,payload.product_id): raise HTTPException(404,"Product not found")
+ po=PurchaseOrder(**payload.model_dump());db.add(po);db.commit();db.refresh(po);audit(db,"PURCHASE_ORDER_CREATED","purchase_order",po.id);db.commit()
+ return {"id":po.id,"supplier_id":po.supplier_id,"product_id":po.product_id,"quantity":po.quantity,"unit_cost":str(po.unit_cost),"status":po.status}
+@app.post("/api/v1/admin/purchase-orders/{purchase_order_id}/receive",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def receive_purchase_order(purchase_order_id:str,db:Session=Depends(get_db)):
+ po=db.get(PurchaseOrder,purchase_order_id)
+ if not po: raise HTTPException(404,"Purchase order not found")
+ if po.status=="received": raise HTTPException(409,"Purchase order was already received")
+ product=db.get(Product,po.product_id);product.stock_quantity+=po.quantity;po.status="received";audit(db,"PURCHASE_ORDER_RECEIVED","purchase_order",po.id,str({"quantity":po.quantity}));db.commit()
+ return {"id":po.id,"status":po.status,"new_stock_quantity":product.stock_quantity}
+@app.post("/api/v1/admin/branches",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def create_branch(payload:BranchInput,db:Session=Depends(get_db)):
+ b=StoreBranch(**payload.model_dump());db.add(b)
+ try: db.commit()
+ except IntegrityError: db.rollback();raise HTTPException(409,"Branch code already exists")
+ db.refresh(b);return {"id":b.id,"code":b.code,"name":b.name,"address":b.address,"active":b.active}
+@app.get("/api/v1/admin/branches",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def list_branches(db:Session=Depends(get_db)):
+ return {"items":[{"id":b.id,"code":b.code,"name":b.name,"address":b.address,"active":b.active} for b in db.scalars(select(StoreBranch).order_by(StoreBranch.name))]}
+@app.put("/api/v1/admin/branches/{branch_id}/inventory",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def set_branch_inventory(branch_id:str,payload:BranchStockInput,db:Session=Depends(get_db)):
+ if not db.get(StoreBranch,branch_id):raise HTTPException(404,"Branch not found")
+ if not db.get(Product,payload.product_id):raise HTTPException(404,"Product not found")
+ row=db.scalar(select(BranchInventory).where(BranchInventory.branch_id==branch_id,BranchInventory.product_id==payload.product_id))
+ if row:row.quantity=payload.quantity
+ else:row=BranchInventory(branch_id=branch_id,product_id=payload.product_id,quantity=payload.quantity);db.add(row)
+ db.commit();return {"branch_id":branch_id,"product_id":payload.product_id,"quantity":payload.quantity}
+@app.get("/api/v1/admin/branches/{branch_id}/inventory",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def get_branch_inventory(branch_id:str,db:Session=Depends(get_db)):
+ if not db.get(StoreBranch,branch_id):raise HTTPException(404,"Branch not found")
+ rows=list(db.scalars(select(BranchInventory).where(BranchInventory.branch_id==branch_id)))
+ return {"items":[{"product_id":r.product_id,"name":db.get(Product,r.product_id).name,"quantity":r.quantity} for r in rows]}
+@app.post("/api/v1/admin/staff",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def add_staff(payload:StaffInput,db:Session=Depends(get_db)):
+ s=StaffMember(**payload.model_dump(),email=payload.email.lower())
+ db.add(s)
+ try:db.commit()
+ except IntegrityError:db.rollback();raise HTTPException(409,"Staff email already exists")
+ db.refresh(s);audit(db,"STAFF_MEMBER_CREATED","staff_member",s.id);db.commit()
+ return {"id":s.id,"name":s.name,"email":s.email,"role":s.role,"active":s.active}
+@app.get("/api/v1/admin/staff",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def list_staff(db:Session=Depends(get_db)):
+ return {"items":[{"id":s.id,"name":s.name,"email":s.email,"role":s.role,"active":s.active} for s in db.scalars(select(StaffMember).order_by(StaffMember.name))]}
+@app.post("/api/v1/admin/returns",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def request_return(payload:ReturnInput,db:Session=Depends(get_db)):
+ o=db.get(Order,payload.order_id)
+ if not o:raise HTTPException(404,"Order not found")
+ if o.payment_status!="paid":raise HTTPException(409,"Only paid orders can enter the refund workflow")
+ if o.status=="cancelled":raise HTTPException(409,"Cancelled orders cannot be returned")
+ existing=db.scalar(select(ReturnRequest.id).where(ReturnRequest.order_id==o.id,ReturnRequest.status.in_(["requested","approved","refunded"])))
+ if existing:raise HTTPException(409,"A return/refund request already exists for this order")
+ r=ReturnRequest(order_id=o.id,reason=payload.reason,refund_amount=o.subtotal);db.add(r);db.commit();db.refresh(r);audit(db,"RETURN_REQUESTED","return",r.id);db.commit()
+ return {"id":r.id,"order_id":r.order_id,"reason":r.reason,"status":r.status,"refund_amount":str(r.refund_amount)}
+@app.get("/api/v1/admin/returns",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def list_returns(db:Session=Depends(get_db)):
+ return {"items":[{"id":r.id,"order_id":r.order_id,"reason":r.reason,"status":r.status,"refund_amount":str(r.refund_amount),"created_at":r.created_at.isoformat()} for r in db.scalars(select(ReturnRequest).order_by(ReturnRequest.created_at.desc()))]}
+@app.post("/api/v1/admin/returns/{return_id}/refund",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def approve_refund(return_id:str,db:Session=Depends(get_db)):
+ r=db.get(ReturnRequest,return_id)
+ if not r:raise HTTPException(404,"Return request not found")
+ if r.status=="refunded":return {"id":r.id,"status":"refunded","message":"Already marked refunded"}
+ if r.status not in ("requested","approved"):raise HTTPException(409,"Return cannot be refunded in its current state")
+ r.status="refunded";o=db.get(Order,r.order_id);o.payment_status="refunded";audit(db,"REFUND_RECORDED","return",r.id,str({"amount":str(r.refund_amount),"mode":"manual-record"}));db.commit()
+ return {"id":r.id,"status":r.status,"refund_amount":str(r.refund_amount),"mode":"manual-record"}
