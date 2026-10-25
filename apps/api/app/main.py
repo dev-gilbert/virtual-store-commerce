@@ -939,7 +939,7 @@ class StoreReviewInput(BaseModel):
  notes:str=Field(default="",max_length=2000)
 class AccountAdminInput(BaseModel):
  active:bool|None=None
- role:str|None=Field(default=None,pattern=r"^(store_owner|store_manager|store_staff|platform_admin)$")
+ role:str|None=Field(default=None,pattern=r"^(store_owner|store_manager|store_staff|customer|platform_admin)$")
 class StoreAdminInput(BaseModel):
  name:str|None=Field(default=None,min_length=2,max_length=180)
  plan:str|None=Field(default=None,pattern=r"^(starter|growth|business|enterprise)$")
