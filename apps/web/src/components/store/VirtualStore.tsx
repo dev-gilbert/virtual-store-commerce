@@ -16,7 +16,7 @@ const productImages=[
  "https://images.unsplash.com/photo-1594631252845-29fc4cc8cde9?w=256&h=256&fit=crop"
 ];
 function ProductBox({p,onSelect,position}:{p:Placed;onSelect:(id:string)=>void;position:[number,number,number]}) {
- const fallback=productImages[Math.abs(p.sku.split("").reduce((n,c)=>n+c.charCodeAt(0),0))%productImages.length];
+ const fallback=productImages[(p.sku.includes("BAN")?0:p.sku.includes("MIL")?1:p.sku.includes("BRE")?2:p.sku.includes("JUI")?3:p.sku.includes("RIC")?4:p.sku.includes("SOA")?5:p.sku.includes("COO")?6:p.sku.includes("TEA")?7:Math.abs(p.sku.length)%productImages.length)];
  const image=p.image_url||fallback;
  const texture=useTexture(image);
  return <group position={position} onClick={e=>{e.stopPropagation();onSelect(p.product_id)}}>
