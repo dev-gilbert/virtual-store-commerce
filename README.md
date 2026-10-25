@@ -4,6 +4,10 @@
 
 ## Current implementation
 
+## Product requirements and AI implementation guide
+
+The complete 35-feature roadmap, acceptance criteria, architecture rules, implementation sequence, and reusable AI-agent task prompt live in [`docs/ADVANCED_FEATURES_SPEC.md`](docs/ADVANCED_FEATURES_SPEC.md). Treat that document as the product specification, and verify feature status against the current code and tests before assuming anything is implemented.
+
 - Next.js + React + TypeScript storefront and original procedural Three.js / React Three Fiber supermarket.
 - FastAPI API with SQLAlchemy data models for products, fixtures, product placements, guest carts, orders, order items, and audit events.
 - Reproducible seed catalogue and 3D shelf layout.
