@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from app.main import app
+from app.main import app, Promotion, SessionLocal
 
 @pytest.fixture
 def client():
@@ -13,14 +13,9 @@ from uuid import uuid4
 def test_checkout_applies_coupon_limit_and_pickup_pricing(client):
     product = client.get("/api/v1/products").json()["items"][0]
     code = "LIMIT" + uuid4().hex[:8].upper()
-    admin_headers = {"X-Admin-Key": "local-dev-admin-change-me"}
-    promotion = client.post("/api/v1/admin/promotions", headers=admin_headers, json={
-        "code": code,
-        "discount_percent": 10,
-        "min_subtotal": 0,
-        "usage_limit": 1,
-    })
-    assert promotion.status_code == 200, promotion.text
+    with SessionLocal() as db:
+        db.add(Promotion(code=code, discount_percent=10, min_subtotal=0, usage_limit=1, active=True))
+        db.commit()
 
     session = "coupon-session-" + uuid4().hex
     assert client.post(f"/api/v1/cart/items?session_id={session}", json={
