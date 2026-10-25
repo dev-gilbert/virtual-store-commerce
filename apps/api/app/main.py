@@ -127,11 +127,54 @@ app.add_middleware(CORSMiddleware,allow_origins=os.getenv("CORS_ORIGINS","http:/
 @app.get("/health",tags=["Operations"])
 def health(): return {"status":"ok","service":"virtual-store-commerce-api","database":"connected"}
 @app.get("/api/v1/products",tags=["Products"])
-def products(q:str|None=Query(default=None,max_length=100),category:str|None=Query(default=None,max_length=80),db:Session=Depends(get_db)):
- query=select(Product).where(Product.active.is_(True)).order_by(Product.category,Product.name)
- if q: query=query.where((Product.name.ilike(f"%{q}%"))|(Product.description.ilike(f"%{q}%"))|(Product.sku.ilike(f"%{q}%")))
- if category: query=query.where(Product.category==category)
- ps=list(db.scalars(query)); return {"items":[ProductOut.model_validate(p).model_dump(mode="json") for p in ps],"total":len(ps)}
+def products(
+ q:str|None=Query(default=None,max_length=100),
+ category:str|None=Query(default=None,max_length=80),
+ min_price:Decimal|None=Query(default=None,ge=0),
+ max_price:Decimal|None=Query(default=None,ge=0),
+ in_stock:bool|None=Query(default=None),
+ sort:str=Query(default="relevance",pattern=r"^(relevance|price_asc|price_desc|newest|name)$"),
+ limit:int=Query(default=60,ge=1,le=100),
+ offset:int=Query(default=0,ge=0),
+ db:Session=Depends(get_db)):
+ import difflib
+ if min_price is not None and max_price is not None and min_price>max_price:
+  raise HTTPException(422,"min_price must be less than or equal to max_price")
+ ps=list(db.scalars(select(Product).where(Product.active.is_(True))))
+ if category: ps=[p for p in ps if p.category.casefold()==category.casefold()]
+ if min_price is not None: ps=[p for p in ps if p.price>=min_price]
+ if max_price is not None: ps=[p for p in ps if p.price<=max_price]
+ if in_stock is not None: ps=[p for p in ps if (p.stock_quantity>0)==in_stock]
+ query_text=(q or "").strip().casefold()
+ scored=[]
+ synonyms={"strawberry":"strawberries","strawberries":"strawberry","soda":"drinks","beverage":"drinks","beverages":"drinks","milk":"dairy","bread":"bakery","soap":"home care","tea":"rwandan black tea"}
+ if query_text:
+  terms=query_text.split()
+  for p in ps:
+   fields=[p.name,p.sku,p.category,p.description]
+   haystack=" ".join(fields).casefold()
+   tokens=set(haystack.replace("-"," ").replace("/"," ").split())
+   score=0
+   if query_text in haystack: score+=10
+   if query_text in p.name.casefold(): score+=12
+   if query_text in p.sku.casefold(): score+=15
+   if query_text in p.category.casefold(): score+=7
+   for term in terms:
+    if term in tokens: score+=5
+    synonym=synonyms.get(term)
+    if synonym and synonym in haystack: score+=4
+    if len(term)>=5 and any(difflib.SequenceMatcher(None,term,token).ratio()>=0.78 for token in tokens): score+=2
+   if score: scored.append((score,p))
+  scored.sort(key=lambda item:(-item[0],item[1].name.casefold()))
+  ps=[p for _,p in scored]
+ if sort=="price_asc": ps.sort(key=lambda p:(p.price,p.name.casefold()))
+ elif sort=="price_desc": ps.sort(key=lambda p:(-p.price,p.name.casefold()))
+ elif sort=="newest": ps.sort(key=lambda p:p.created_at,reverse=True)
+ elif sort=="name": ps.sort(key=lambda p:p.name.casefold())
+ elif not query_text: ps.sort(key=lambda p:(p.category.casefold(),p.name.casefold()))
+ total=len(ps)
+ page=ps[offset:offset+limit]
+ return {"items":[ProductOut.model_validate(p).model_dump(mode="json") for p in page],"total":total,"limit":limit,"offset":offset}
 @app.get("/api/v1/products/{product_id}",response_model=ProductOut,tags=["Products"])
 def product_detail(product_id:str,db:Session=Depends(get_db)):
  p=db.get(Product,product_id)
