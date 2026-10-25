@@ -13,5 +13,5 @@ export async function searchProducts(options:ProductSearchOptions={}){return api
 export type SearchSuggestion={type:string;label:string;product_id?:string;sku?:string;category?:string};
 export async function getSearchSuggestions(q:string){return api<{items:SearchSuggestion[]}>(`/api/v1/search/suggestions?q=${encodeURIComponent(q)}`)}
 
-export type Order={id:string;status:string;payment_status:string;subtotal:string;currency:string;created_at:string;customer_name:string|null;customer_phone:string;customer_email:string|null;delivery_address:string|null;delivery_instructions:string|null;is_anonymous:boolean;items:{product_id:string;sku:string;name:string;unit_price:string;quantity:number}[]};
+export type Order={id:string;status:string;payment_status:string;subtotal:string;currency:string;created_at:string;customer_name:string|null;customer_phone:string;customer_email:string|null;delivery_address:string|null;delivery_instructions:string|null;is_anonymous:boolean;discount_amount?:string;delivery_fee?:string;total?:string;delivery_method?:string;expected_delivery_window?:string|null;proof_of_delivery?:string|null;items:{product_id:string;sku:string;name:string;unit_price:string;quantity:number}[]};
 export async function listOrders(){return api<{items:Order[];total:number}>(`/api/v1/orders?session_id=${encodeURIComponent(getSessionId())}`)}
