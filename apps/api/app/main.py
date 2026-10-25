@@ -577,7 +577,7 @@ def simulate_payment(order_id:str,session_id:str=Query(min_length=8,max_length=1
  if not o or o.session_id!=session_id: raise HTTPException(404,"Order not found")
  if o.payment_status=="paid": return {"order_id":o.id,"payment_status":"paid","message":"Payment already confirmed; no duplicate action taken"}
  if o.status!="pending_payment": raise HTTPException(409,"This order can no longer be paid")
- o.payment_status="paid"; o.status="confirmed"; audit(db,"SANDBOX_PAYMENT_SUCCEEDED","order",o.id,'{"provider":"local-sandbox"}'); db.commit()
+ o.payment_status="paid"; o.status="confirmed"; audit(db,"SANDBOX_PAYMENT_SUCCEEDED","order",o.id,'{"provider":"local-sandbox"}'); db.commit();notify_order_status(o)
  return {"order_id":o.id,"payment_status":o.payment_status,"order_status":o.status,"mode":"sandbox"}
 @app.post("/api/v1/orders/{order_id}/cancel",tags=["Orders"])
 def cancel_order(order_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
@@ -1093,7 +1093,8 @@ def update_order_status(order_id:str,payload:OrderStatusInput,db:Session=Depends
  if payload.proof_of_delivery:order.proof_of_delivery=payload.proof_of_delivery
  audit(db,"ORDER_FULFILMENT_STATUS_CHANGED","order",order.id,str({"status":payload.status,"expected_delivery_window":payload.expected_delivery_window,"proof_of_delivery":bool(payload.proof_of_delivery)}))
  db.commit()
- return {"order_id":order.id,"status":order.status,"expected_delivery_window":payload.expected_delivery_window,"proof_of_delivery":payload.proof_of_delivery}
+ notify_order_status(order)
+ return {"order_id":order.id,"status":order.status,"expected_delivery_window":order.expected_delivery_window,"proof_of_delivery":order.proof_of_delivery}
 @app.get("/api/v1/orders/{order_id}/receipt",tags=["Orders"])
 def order_receipt(order_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
  session_id=effective_session_id(session_id)
