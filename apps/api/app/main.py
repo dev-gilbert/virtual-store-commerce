@@ -469,7 +469,7 @@ def get_branch_inventory(branch_id:str,db:Session=Depends(get_db)):
  return {"items":[{"product_id":r.product_id,"name":db.get(Product,r.product_id).name,"quantity":r.quantity} for r in rows]}
 @app.post("/api/v1/admin/staff",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
 def add_staff(payload:StaffInput,db:Session=Depends(get_db)):
- s=StaffMember(**payload.model_dump(),email=payload.email.lower())
+ s=StaffMember(name=payload.name,email=payload.email.lower(),role=payload.role)
  db.add(s)
  try:db.commit()
  except IntegrityError:db.rollback();raise HTTPException(409,"Staff email already exists")
