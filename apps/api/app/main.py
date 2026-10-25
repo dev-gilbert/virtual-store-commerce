@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, uuid
+import os, uuid, hmac, hashlib, secrets, base64
 from decimal import InvalidOperation
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -65,6 +65,16 @@ class AuditEvent(Base):
  __tablename__="audit_events"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4())); event_type:Mapped[str]=mapped_column(String(100),index=True)
  entity_type:Mapped[str]=mapped_column(String(80)); entity_id:Mapped[str]=mapped_column(String(36),index=True); details:Mapped[str]=mapped_column(Text,default="{}")
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+
+
+class Account(Base):
+ __tablename__="accounts"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ name:Mapped[str]=mapped_column(String(180)); email:Mapped[str]=mapped_column(String(254),unique=True,index=True)
+ password_hash:Mapped[str]=mapped_column(String(256)); role:Mapped[str]=mapped_column(String(32),default="store_owner")
+ store_name:Mapped[str|None]=mapped_column(String(180),nullable=True); active:Mapped[bool]=mapped_column(Boolean,default=True)
+ reset_token_hash:Mapped[str|None]=mapped_column(String(64),nullable=True); reset_expires_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
 
 class Promotion(Base):
@@ -499,3 +509,71 @@ def approve_refund(return_id:str,db:Session=Depends(get_db)):
  if r.status not in ("requested","approved"):raise HTTPException(409,"Return cannot be refunded in its current state")
  r.status="refunded";o=db.get(Order,r.order_id);o.payment_status="refunded";audit(db,"REFUND_RECORDED","return",r.id,str({"amount":str(r.refund_amount),"mode":"manual-record"}));db.commit()
  return {"id":r.id,"status":r.status,"refund_amount":str(r.refund_amount),"mode":"manual-record"}
+
+
+class RegisterInput(BaseModel):
+ name:str=Field(min_length=2,max_length=180); email:str=Field(min_length=5,max_length=254); password:str=Field(min_length=10,max_length=128); store_name:str|None=Field(default=None,max_length=180)
+class LoginInput(BaseModel):
+ email:str; password:str
+class ForgotPasswordInput(BaseModel):
+ email:str
+class ResetPasswordInput(BaseModel):
+ token:str=Field(min_length=20,max_length=256); password:str=Field(min_length=10,max_length=128)
+def password_digest(password:str,salt:bytes|None=None)->str:
+ salt=salt or secrets.token_bytes(16)
+ digest=hashlib.scrypt(password.encode(),salt=salt,n=2**14,r=8,p=1,dklen=32)
+ return base64.urlsafe_b64encode(salt).decode()+"."+base64.urlsafe_b64encode(digest).decode()
+def password_matches(password:str,stored:str)->bool:
+ try:
+  salt_s,digest_s=stored.split(".",1);salt=base64.urlsafe_b64decode(salt_s);expected=base64.urlsafe_b64decode(digest_s)
+  return hmac.compare_digest(hashlib.scrypt(password.encode(),salt=salt,n=2**14,r=8,p=1,dklen=32),expected)
+ except Exception:return False
+def issue_account_token(account:Account)->str:
+ expires=str(int(datetime.now(timezone.utc).timestamp())+60*60*12)
+ payload=f"{account.id}.{account.role}.{expires}"
+ sig=hmac.new(os.getenv("AUTH_SECRET","dev-only-change-this-secret").encode(),payload.encode(),hashlib.sha256).hexdigest()
+ return base64.urlsafe_b64encode(f"{payload}.{sig}".encode()).decode()
+def account_from_token(authorization:str|None,db:Session)->Account:
+ if not authorization or not authorization.startswith("Bearer "):raise HTTPException(401,"Sign in required")
+ try:
+  raw=base64.urlsafe_b64decode(authorization[7:].encode()).decode();account_id,role,expires,sig=raw.rsplit(".",3);payload=f"{account_id}.{role}.{expires}"
+  expected=hmac.new(os.getenv("AUTH_SECRET","dev-only-change-this-secret").encode(),payload.encode(),hashlib.sha256).hexdigest()
+  if not hmac.compare_digest(sig,expected) or int(expires)<int(datetime.now(timezone.utc).timestamp()):raise ValueError()
+  account=db.get(Account,account_id)
+  if not account or not account.active or account.role!=role:raise ValueError()
+  return account
+ except Exception:raise HTTPException(401,"Session is invalid or expired")
+@app.post("/api/v1/auth/register",tags=["Authentication"])
+def register_account(payload:RegisterInput,db:Session=Depends(get_db)):
+ email=payload.email.strip().lower()
+ if db.scalar(select(Account.id).where(Account.email==email)):raise HTTPException(409,"An account with this email already exists")
+ account=Account(name=payload.name.strip(),email=email,password_hash=password_digest(payload.password),role="store_owner",store_name=payload.store_name)
+ db.add(account)
+ try:db.commit()
+ except IntegrityError:db.rollback();raise HTTPException(409,"An account with this email already exists")
+ db.refresh(account);audit(db,"ACCOUNT_REGISTERED","account",account.id);db.commit()
+ return {"token":issue_account_token(account),"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name}}
+@app.post("/api/v1/auth/login",tags=["Authentication"])
+def login_account(payload:LoginInput,db:Session=Depends(get_db)):
+ account=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
+ if not account or not account.active or not password_matches(payload.password,account.password_hash):raise HTTPException(401,"Email or password is incorrect")
+ return {"token":issue_account_token(account),"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name}}
+@app.get("/api/v1/auth/me",tags=["Authentication"])
+def account_me(authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ a=account_from_token(authorization,db)
+ return {"id":a.id,"name":a.name,"email":a.email,"role":a.role,"store_name":a.store_name}
+@app.post("/api/v1/auth/forgot-password",tags=["Authentication"])
+def forgot_password(payload:ForgotPasswordInput,db:Session=Depends(get_db)):
+ a=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
+ response={"message":"If an account exists for that email, password reset instructions will be sent."}
+ if a:
+  token=secrets.token_urlsafe(32);a.reset_token_hash=hashlib.sha256(token.encode()).hexdigest();a.reset_expires_at=datetime.now(timezone.utc).replace(tzinfo=None)+__import__("datetime").timedelta(minutes=30);db.commit()
+  if os.getenv("APP_ENV","development").lower()!="production":response["development_reset_token"]=token
+ return response
+@app.post("/api/v1/auth/reset-password",tags=["Authentication"])
+def reset_password(payload:ResetPasswordInput,db:Session=Depends(get_db)):
+ token_hash=hashlib.sha256(payload.token.encode()).hexdigest()
+ a=db.scalar(select(Account).where(Account.reset_token_hash==token_hash))
+ if not a or not a.reset_expires_at or a.reset_expires_at<datetime.now(timezone.utc).replace(tzinfo=None):raise HTTPException(400,"Reset link is invalid or expired")
+ a.password_hash=password_digest(payload.password);a.reset_token_hash=None;a.reset_expires_at=None;db.commit()
+ return {"message":"Password reset successfully. Please sign in with your new password."}
