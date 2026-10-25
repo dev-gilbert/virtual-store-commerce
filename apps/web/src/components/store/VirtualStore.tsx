@@ -1,9 +1,11 @@
 "use client";
 import {useCallback,useEffect,useState} from "react";
-import {Canvas} from "@react-three/fiber";
+import {Canvas,useThree} from "@react-three/fiber";
 import {Html,OrbitControls,useTexture} from "@react-three/drei";
 import {useFrame} from "@react-three/fiber";
 import {useRef} from "react";
+import {Vector3} from "three";
+import {OrbitControls as OrbitControlsImpl} from "three-stdlib";
 import type {Group} from "three";
 import {api,getSessionId,searchProducts,type Product} from "@/lib/commerce";
 type Placed={placement_id:string;product_id:string;sku:string;name:string;price:string;color:string;image_url?:string|null;stock_quantity:number;shelf_level:number;slot:number};
@@ -39,7 +41,33 @@ function FixtureView({fixture,onSelect,highlightedId}:{fixture:Fixture;onSelect:
  <Html position={[0,2.15,0]} center distanceFactor={15} style={{pointerEvents:"none"}}><div className="fixture-name-tag">{fixture.name}</div></Html>
  </group>
 }
-function Scene({layout,onSelect,highlightedId}:{layout:Layout;onSelect:(id:string)=>void;highlightedId:string|null}){return <><color attach="background" args={["#e9e7e1"]}/><ambientLight intensity={1.15}/><hemisphereLight args={["#fff","#b9b3a8",1.2]}/><directionalLight position={[6,10,5]} intensity={2.1} castShadow/><mesh rotation={[-Math.PI/2,0,0]} position={[0,-.06,0]} receiveShadow><planeGeometry args={[32,32]}/><meshStandardMaterial color="#c9c7c0"/></mesh><mesh position={[0,2.5,-5]}><boxGeometry args={[14,5,.18]}/><meshStandardMaterial color="#f4f1ea"/></mesh>{layout.items.map(f=><FixtureView key={f.id} fixture={f} onSelect={onSelect} highlightedId={highlightedId}/>)}<OrbitControls makeDefault target={[0,1,0]} minDistance={3} maxDistance={17} maxPolarAngle={Math.PI/2-.04} enableDamping dampingFactor={.08}/></>}
+function Scene({layout,onSelect,highlightedId}:{layout:Layout;onSelect:(id:string)=>void;highlightedId:string|null}){
+ const controls=useRef<OrbitControlsImpl|null>(null);
+ const focusTarget=useRef(new Vector3(0,1,0));
+ const {camera}=useThree();
+ useEffect(()=>{
+  if(!highlightedId)return;
+  for(const fixture of layout.items){
+   const product=fixture.products.find(item=>item.product_id===highlightedId);
+   if(!product)continue;
+   const kind=fixture.kind;
+   const slot=product.slot;
+   const localX=kind==="refrigerator"?-.48+(slot%4)*.31:kind==="checkout"||kind==="table"||kind==="display"?-.58+(slot%4)*.36:-.68+(slot%6)*.27;
+   const level=kind==="refrigerator"?.38+Math.min(3,product.shelf_level)*.4:kind==="checkout"||kind==="table"||kind==="display"?.83+Math.min(2,product.shelf_level)*.28:.51+Math.min(3,product.shelf_level)*.4;
+   focusTarget.current.set(Number(fixture.position[0]??0)+localX,level+Number(fixture.position[1]??0),Number(fixture.position[2]??0)+.18);
+   return;
+  }
+ },[highlightedId,layout]);
+ useFrame((_,delta)=>{
+  if(!highlightedId||!controls.current)return;
+  const alpha=1-Math.exp(-delta*2.2);
+  controls.current.target.lerp(focusTarget.current,alpha);
+  const destination=focusTarget.current.clone().add(new Vector3(3.2,2.1,3.2));
+  camera.position.lerp(destination,1-Math.exp(-delta*1.5));
+  controls.current.update();
+ });
+ return <><color attach="background" args={["#e9e7e1"]}/><ambientLight intensity={1.15}/><hemisphereLight args={["#fff","#b9b3a8",1.2]}/><directionalLight position={[6,10,5]} intensity={2.1} castShadow/><mesh rotation={[-Math.PI/2,0,0]} position={[0,-.06,0]} receiveShadow><planeGeometry args={[32,32]}/><meshStandardMaterial color="#c9c7c0"/></mesh><mesh position={[0,2.5,-5]}><boxGeometry args={[14,5,.18]}/><meshStandardMaterial color="#f4f1ea"/></mesh>{layout.items.map(f=><FixtureView key={f.id} fixture={f} onSelect={onSelect} highlightedId={highlightedId}/>)}<OrbitControls ref={controls} makeDefault target={[0,1,0]} minDistance={3} maxDistance={17} maxPolarAngle={Math.PI/2-.04} enableDamping dampingFactor={.08}/></>}
+
 export default function VirtualStore(){const [layout,setLayout]=useState<Layout>({items:[],total:0}),[products,setProducts]=useState<Product[]>([]),[selected,setSelected]=useState<Product|null>(null),[message,setMessage]=useState("Loading store layout…"),[adding,setAdding]=useState(false),[cartCount,setCartCount]=useState(0),[query,setQuery]=useState(""),[matches,setMatches]=useState<Product[]>([]),[highlightedId,setHighlightedId]=useState<string|null>(null);
  const refreshCart=useCallback(async()=>{const c=await api<{item_count:number}>(`/api/v1/cart?session_id=${encodeURIComponent(getSessionId())}`);setCartCount(c.item_count)},[]);
  // eslint-disable-next-line react-hooks/set-state-in-effect
