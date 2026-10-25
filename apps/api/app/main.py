@@ -281,7 +281,7 @@ def ensure_order_customer_columns():
  from sqlalchemy import inspect, text
  inspector=inspect(engine)
  existing={column["name"] for column in inspector.get_columns("orders")} if inspector.has_table("orders") else set()
- additions={"customer_name":"VARCHAR(180)","customer_phone":"VARCHAR(40) NOT NULL DEFAULT ''","customer_email":"VARCHAR(254)","delivery_address":"TEXT","delivery_instructions":"TEXT","is_anonymous":"BOOLEAN NOT NULL DEFAULT 0"}
+ additions={"customer_name":"VARCHAR(180)","customer_phone":"VARCHAR(40) NOT NULL DEFAULT ''","customer_email":"VARCHAR(254)","delivery_address":"TEXT","delivery_instructions":"TEXT","is_anonymous":"BOOLEAN NOT NULL DEFAULT 0","discount_amount":"NUMERIC(12,2) NOT NULL DEFAULT 0","delivery_fee":"NUMERIC(12,2) NOT NULL DEFAULT 0","total":"NUMERIC(12,2) NOT NULL DEFAULT 0","delivery_method":"VARCHAR(20) NOT NULL DEFAULT 'delivery'","expected_delivery_window":"VARCHAR(120)","proof_of_delivery":"TEXT"}
  with engine.begin() as connection:
   for name,sql_type in additions.items():
    if name not in existing: connection.execute(text(f"ALTER TABLE orders ADD COLUMN {name} {sql_type}"))
