@@ -8,17 +8,21 @@ branch_labels = None
 depends_on = None
 
 def upgrade() -> None:
-    op.add_column("orders", sa.Column("customer_name", sa.String(length=180), nullable=True))
-    op.add_column("orders", sa.Column("customer_phone", sa.String(length=40), nullable=False, server_default=""))
-    op.add_column("orders", sa.Column("customer_email", sa.String(length=254), nullable=True))
-    op.add_column("orders", sa.Column("delivery_address", sa.Text(), nullable=True))
-    op.add_column("orders", sa.Column("delivery_instructions", sa.Text(), nullable=True))
-    op.add_column("orders", sa.Column("is_anonymous", sa.Boolean(), nullable=False, server_default=sa.false()))
+    existing = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("orders")}
+    columns = [
+        sa.Column("customer_name", sa.String(length=180), nullable=True),
+        sa.Column("customer_phone", sa.String(length=40), nullable=False, server_default=""),
+        sa.Column("customer_email", sa.String(length=254), nullable=True),
+        sa.Column("delivery_address", sa.Text(), nullable=True),
+        sa.Column("delivery_instructions", sa.Text(), nullable=True),
+        sa.Column("is_anonymous", sa.Boolean(), nullable=False, server_default=sa.false()),
+    ]
+    for column in columns:
+        if column.name not in existing:
+            op.add_column("orders", column)
 
 def downgrade() -> None:
-    op.drop_column("orders", "is_anonymous")
-    op.drop_column("orders", "delivery_instructions")
-    op.drop_column("orders", "delivery_address")
-    op.drop_column("orders", "customer_email")
-    op.drop_column("orders", "customer_phone")
-    op.drop_column("orders", "customer_name")
+    existing = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("orders")}
+    for name in ("is_anonymous", "delivery_instructions", "delivery_address", "customer_email", "customer_phone", "customer_name"):
+        if name in existing:
+            op.drop_column("orders", name)
