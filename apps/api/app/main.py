@@ -196,10 +196,16 @@ class ProductCreate(BaseModel):
  sku:str=Field(min_length=2,max_length=80); name:str=Field(min_length=2,max_length=180); description:str=Field(default="",max_length=2000)
  category:str=Field(min_length=2,max_length=80); price:Decimal=Field(gt=0,max_digits=12,decimal_places=2); currency:str=Field(default="RWF",min_length=3,max_length=3)
  stock_quantity:int=Field(default=0,ge=0,le=1000000); image_url:str|None=Field(default=None,max_length=500); color:str=Field(default="#799d79",pattern=r"^#[0-9a-fA-F]{6}$")
+ brand:str=Field(default="",max_length=120); synonyms:str=Field(default="",max_length=1000); unit:str=Field(default="each",max_length=40)
+ ingredients:str=Field(default="",max_length=4000); allergens:str=Field(default="",max_length=1000); nutrition:str=Field(default="",max_length=2000)
+ gallery_json:str=Field(default="[]",max_length=10000); video_url:str|None=Field(default=None,max_length=500); discontinued:bool=False
 class ProductPatch(BaseModel):
  name:str|None=Field(default=None,min_length=2,max_length=180); description:str|None=Field(default=None,max_length=2000)
  category:str|None=Field(default=None,min_length=2,max_length=80); price:Decimal|None=Field(default=None,gt=0,max_digits=12,decimal_places=2)
  stock_quantity:int|None=Field(default=None,ge=0,le=1000000); active:bool|None=None
+ brand:str|None=Field(default=None,max_length=120); synonyms:str|None=Field(default=None,max_length=1000); unit:str|None=Field(default=None,max_length=40)
+ ingredients:str|None=Field(default=None,max_length=4000); allergens:str|None=Field(default=None,max_length=1000); nutrition:str|None=Field(default=None,max_length=2000)
+ gallery_json:str|None=Field(default=None,max_length=10000); video_url:str|None=Field(default=None,max_length=500); discontinued:bool|None=None
 class ProductOut(BaseModel):
  model_config=ConfigDict(from_attributes=True)
  id:str; sku:str; name:str; description:str; category:str; price:Decimal; currency:str; stock_quantity:int; image_url:str|None; color:str; active:bool
