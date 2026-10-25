@@ -6,7 +6,7 @@ export async function api<T>(path:string,init?:RequestInit):Promise<T>{const met
 export type Product={id:string;sku:string;name:string;description:string;category:string;price:string|number;currency:string;stock_quantity:number;image_url?:string|null;color:string;active:boolean;brand?:string;synonyms?:string;unit?:string;ingredients?:string;allergens?:string;nutrition?:string;gallery_json?:string;video_url?:string|null;discontinued?:boolean};
 export type Cart={session_id:string;items:{product_id:string;sku:string;name:string;price:string;currency:string;quantity:number;line_total:string;stock_quantity:number}[];item_count:number;subtotal:string;currency:string};
 
-export type ProductSearchOptions={q?:string;category?:string;min_price?:string;max_price?:string;in_stock?:boolean;sort?:"relevance"|"price_asc"|"price_desc"|"newest"|"name"|"popularity";limit?:number;offset?:number};
+export type ProductSearchOptions={q?:string;category?:string;brand?:string;min_rating?:number;min_price?:string;max_price?:string;in_stock?:boolean;sort?:"relevance"|"price_asc"|"price_desc"|"newest"|"name"|"popularity";limit?:number;offset?:number};
 export type ProductSearchResult={items:Product[];total:number;limit:number;offset:number};
 export function productSearchPath(options:ProductSearchOptions={}){const params=new URLSearchParams();for(const [key,value] of Object.entries(options)){if(value!==undefined&&value!==null&&value!=="")params.set(key,String(value))}return `/api/v1/products?${params.toString()}`}
 export async function searchProducts(options:ProductSearchOptions={}){return api<ProductSearchResult&{alternatives?:Product[]}>(productSearchPath(options))}
