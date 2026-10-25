@@ -252,3 +252,5 @@
 .route-step-number{display:grid;place-items:center;flex:0 0 28px;height:28px;border-radius:50%;background:#edf1eb;color:#234e3e;font-weight:700;font-size:12px}
 .shopping-route-steps .route-collected{opacity:.58;background:#f5f7f3}.shopping-route-steps .route-collected>div strong{text-decoration:line-through}
 @media(max-width:760px){.route-product-picker{grid-template-columns:repeat(2,minmax(0,1fr))}.shopping-route-steps li{align-items:flex-start;flex-wrap:wrap}.shopping-route-steps li>div{flex-basis:calc(100% - 44px)}}
+
+.version-status-dot{display:block;flex:0 0 9px;width:9px;height:9px;border-radius:50%}
