@@ -4,7 +4,9 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'development')
+    monkeypatch.setenv('ADMIN_API_KEY', 'local-dev-admin-change-me')
     # Entering TestClient runs FastAPI's lifespan, which creates tables and seeds fixtures.
     with TestClient(app) as test_client:
         yield test_client
