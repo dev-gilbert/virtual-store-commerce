@@ -1,7 +1,7 @@
 "use client";
 import {useCallback,useEffect,useState} from "react";
 import Link from "next/link";
-import {api,type Product} from "@/lib/commerce";
+import {api} from "@/lib/commerce";
 type Fixture={id:string;code:string;name:string;kind:string;position:number[];products:{product_id:string;name:string;sku:string;price:string;stock_quantity:number;shelf_level:number;slot:number}[]};
 type Layout={items:Fixture[];total:number};
 export default function StoreMapPage(){
