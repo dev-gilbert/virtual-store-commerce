@@ -269,3 +269,10 @@
 @media(max-width:760px){.customer-account-grid{grid-template-columns:1fr}}
 
 .customer-list-add select{min-width:0;flex:1;width:80px;border:1px solid #d8ddd4;border-radius:7px;padding:8px;font:inherit;font-size:12px;background:#fff;color:#1c2421}
+
+
+.account-security-page{padding-bottom:70px}
+.mfa-setup-details{display:grid;gap:13px;max-width:620px;margin-top:18px}
+.mfa-setup-details code{display:block;padding:14px;border-radius:9px;background:#f0f3ed;overflow-wrap:anywhere;font-size:15px}
+.mfa-setup-details label{display:grid;gap:6px;color:#566258;font-size:13px}
+.mfa-setup-details input{width:100%;padding:11px;border:1px solid #d8ddd4;border-radius:8px;background:#fffefa;color:#1c2421;font:inherit}
