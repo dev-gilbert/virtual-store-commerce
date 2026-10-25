@@ -8,7 +8,7 @@ from typing import Generator
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, create_engine, select
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, create_engine, select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
@@ -589,3 +589,10 @@ def reset_password(payload:ResetPasswordInput,db:Session=Depends(get_db)):
  if not a or not a.reset_expires_at or a.reset_expires_at<datetime.now(timezone.utc).replace(tzinfo=None):raise HTTPException(400,"Reset link is invalid or expired")
  a.password_hash=password_digest(payload.password);a.reset_token_hash=None;a.reset_expires_at=None;db.commit()
  return {"message":"Password reset successfully. Please sign in with your new password."}
+
+
+@app.get("/api/v1/platform/summary",tags=["Platform Administration"])
+def platform_summary(authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ account=account_from_token(authorization,db)
+ if account.role!="platform_admin":raise HTTPException(403,"Platform administrator role required")
+ return {"product_count":db.scalar(select(func.count(Product.id)) ) or 0,"active_product_count":db.scalar(select(func.count(Product.id)).where(Product.active.is_(True))) or 0,"order_count":db.scalar(select(func.count(Order.id))) or 0,"account_count":db.scalar(select(func.count(Account.id))) or 0,"store_owner_count":db.scalar(select(func.count(Account.id)).where(Account.role.in_(["store_owner","store_manager"]))) or 0,"staff_count":db.scalar(select(func.count(StaffMember.id))) or 0}
