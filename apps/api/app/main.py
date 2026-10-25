@@ -352,6 +352,7 @@ def products(
  max_price:Decimal|None=Query(default=None,ge=0),
  in_stock:bool|None=Query(default=None),
  brand:str|None=Query(default=None,max_length=120),
+ min_rating:float|None=Query(default=None,ge=0,le=5),
  sort:str=Query(default="relevance",pattern=r"^(relevance|price_asc|price_desc|newest|name|popularity)$"),
  limit:int=Query(default=60,ge=1,le=100),
  offset:int=Query(default=0,ge=0),
@@ -365,6 +366,11 @@ def products(
  if max_price is not None: ps=[p for p in ps if p.price<=max_price]
  if in_stock is not None: ps=[p for p in ps if (p.stock_quantity>0)==in_stock]
  if brand: ps=[p for p in ps if p.brand.casefold()==brand.casefold()]
+ if min_rating is not None:
+  reviews=list(db.scalars(select(ProductReview).where(ProductReview.product_id.in_([p.id for p in ps])))) if ps else []
+  ratings={}
+  for review in reviews:ratings.setdefault(review.product_id,[]).append(review.rating)
+  ps=[p for p in ps if ratings.get(p.id) and sum(ratings[p.id])/len(ratings[p.id])>=min_rating]
  query_text=(q or "").strip().casefold()
  scored=[]
  synonyms={"strawberry":"strawberries","strawberries":"strawberry","soda":"drinks","beverage":"drinks","beverages":"drinks","milk":"dairy","bread":"bakery","soap":"home care","tea":"rwandan black tea"}
@@ -953,6 +959,8 @@ def update_order_status(order_id:str,payload:OrderStatusInput,db:Session=Depends
  if payload.status not in allowed.get(order.status,set()):raise HTTPException(409,f"Cannot change order status from {order.status} to {payload.status}")
  if payload.status=="confirmed" and order.payment_status!="paid":raise HTTPException(409,"Only paid orders can be confirmed")
  order.status=payload.status
+ if payload.expected_delivery_window:order.expected_delivery_window=payload.expected_delivery_window
+ if payload.proof_of_delivery:order.proof_of_delivery=payload.proof_of_delivery
  audit(db,"ORDER_FULFILMENT_STATUS_CHANGED","order",order.id,str({"status":payload.status,"expected_delivery_window":payload.expected_delivery_window,"proof_of_delivery":bool(payload.proof_of_delivery)}))
  db.commit()
  return {"order_id":order.id,"status":order.status,"expected_delivery_window":payload.expected_delivery_window,"proof_of_delivery":payload.proof_of_delivery}
