@@ -10,6 +10,8 @@
 - Searchable/filterable conventional catalogue and guest basket shared with 3D shopping.
 - Server-side price calculation, stock checks, idempotency-key checkout, stock reservation/release on cancellation, and simulated payment confirmation.
 - Development retailer dashboard for product creation, stock changes, summary metrics, and audit events.
+- Retailers can create drawers, shelves, tables, and display stands, choose their 3D positions, place catalogue products into levels/slots, and remove placements without changing stock.
+- A conventional 2D catalogue remains available alongside the immersive 3D shop; both use the same guest basket and backend inventory.
 - Pytest API coverage and Alembic schema migration.
 - SQLite by default for a simple first run. PostgreSQL can be selected using `DATABASE_URL`.
 
@@ -90,6 +92,9 @@ Frontend API URL defaults to `http://localhost:8000`. To change it, set `NEXT_PU
 - `POST /api/v1/payments/{order_id}/simulate-success`
 - `POST /api/v1/orders/{order_id}/cancel`
 - Development-only admin endpoints under `/api/v1/admin`
+- `POST /api/v1/admin/fixtures`
+- `POST /api/v1/admin/fixtures/{fixture_id}/items`
+- `DELETE /api/v1/admin/fixtures/{fixture_id}/items/{placement_id}`
 
 ## Product principles
 
