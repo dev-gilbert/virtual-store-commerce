@@ -44,7 +44,7 @@ export default function Home() {
       </section>
 
       <section className="bottom-cta"><div><p className="eyebrow">THE FIRST AISLE IS OPEN</p><h2>Curiosity looks good on you.</h2></div><Link href="/virtual-store" className="button-primary">Explore the prototype <span aria-hidden="true">→</span></Link></section>
-      <footer className="site-footer"><Link href="/" className="brand-mark"><span className="brand-icon">v</span><span>virtual<span className="brand-light">store</span></span></Link><p>Original concept. Early prototype. Built for better ways to shop.</p><span><Link href="/admin">Retailer admin</Link> · © 2026 Virtual Store Commerce</span></footer>
+      <footer className="site-footer"><Link href="/" className="brand-mark"><span className="brand-icon">v</span><span>virtual<span className="brand-light">store</span></span></Link><p>Original concept. Early prototype. Built for better ways to shop.</p><span><Link href="/login">Store login</Link> · <Link href="/mystore">My Store</Link> · <Link href="/admin">Platform admin</Link> · © 2026 Virtual Store Commerce</span></footer>
     </main>
   );
 }
