@@ -68,12 +68,26 @@ class AuditEvent(Base):
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
 
 
+class StoreTenant(Base):
+ __tablename__="store_tenants"
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
+ name:Mapped[str]=mapped_column(String(180),index=True)
+ slug:Mapped[str]=mapped_column(String(200),unique=True,index=True)
+ owner_account_id:Mapped[str]=mapped_column(String(36),index=True)
+ status:Mapped[str]=mapped_column(String(24),default="pending",index=True)
+ plan:Mapped[str]=mapped_column(String(40),default="starter")
+ notes:Mapped[str]=mapped_column(Text,default="")
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+ reviewed_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
+ reviewed_by:Mapped[str|None]=mapped_column(String(36),nullable=True)
+
 class Account(Base):
  __tablename__="accounts"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
  name:Mapped[str]=mapped_column(String(180)); email:Mapped[str]=mapped_column(String(254),unique=True,index=True)
  password_hash:Mapped[str]=mapped_column(String(256)); role:Mapped[str]=mapped_column(String(32),default="store_owner")
  store_name:Mapped[str|None]=mapped_column(String(180),nullable=True); active:Mapped[bool]=mapped_column(Boolean,default=True)
+ store_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
  reset_token_hash:Mapped[str|None]=mapped_column(String(64),nullable=True); reset_expires_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
 
@@ -172,6 +186,13 @@ def order_payload(o):
  return {"id":o.id,"status":o.status,"payment_status":o.payment_status,"subtotal":str(o.subtotal),"currency":o.currency,"created_at":o.created_at.isoformat(),"customer_name":o.customer_name,"customer_phone":o.customer_phone,"customer_email":o.customer_email,"delivery_address":o.delivery_address,"delivery_instructions":o.delivery_instructions,"is_anonymous":o.is_anonymous,
  "items":[{"product_id":i.product_id,"sku":i.sku,"name":i.product_name,"unit_price":str(i.unit_price),"quantity":i.quantity} for i in o.items],
  "payment":{"mode":"sandbox","next_action":f"/api/v1/payments/{o.id}/simulate-success"}}
+def ensure_account_store_columns():
+ from sqlalchemy import inspect, text
+ inspector=inspect(engine)
+ existing={column["name"] for column in inspector.get_columns("accounts")} if inspector.has_table("accounts") else set()
+ with engine.begin() as connection:
+  if "store_id" not in existing: connection.execute(text("ALTER TABLE accounts ADD COLUMN store_id VARCHAR(36)"))
+
 def ensure_order_customer_columns():
  from sqlalchemy import inspect, text
  inspector=inspect(engine)
@@ -184,6 +205,7 @@ def ensure_order_customer_columns():
 async def lifespan(_):
  Base.metadata.create_all(bind=engine)
  ensure_order_customer_columns()
+ ensure_account_store_columns()
  with SessionLocal() as db:
   seed_data(db)
   seed_platform_admin(db)
@@ -555,6 +577,9 @@ def account_from_token(authorization:str|None,db:Session)->Account:
   if not hmac.compare_digest(sig,expected) or int(expires)<int(datetime.now(timezone.utc).timestamp()):raise ValueError()
   account=db.get(Account,account_id)
   if not account or not account.active or account.role!=role:raise ValueError()
+  if account.role!="platform_admin" and account.store_id:
+   tenant=db.get(StoreTenant,account.store_id)
+   if not tenant or tenant.status!="approved": raise HTTPException(403,"Store access is unavailable until the platform approves this store")
   return account
  except Exception:raise HTTPException(401,"Session is invalid or expired")
 @app.post("/api/v1/auth/register",tags=["Authentication"])
@@ -563,7 +588,14 @@ def register_account(payload:RegisterInput,db:Session=Depends(get_db)):
  if db.scalar(select(Account.id).where(Account.email==email)):raise HTTPException(409,"An account with this email already exists")
  account=Account(name=payload.name.strip(),email=email,password_hash=password_digest(payload.password),role="store_owner",store_name=payload.store_name)
  db.add(account)
- try:db.commit()
+ try:
+  db.flush()
+  slug_base=__import__("re").sub(r"[^a-z0-9]+","-",payload.store_name.strip().lower()).strip("-") or "store"
+  slug=f"{slug_base}-{account.id[:8]}"
+  tenant=StoreTenant(name=payload.store_name.strip(),slug=slug,owner_account_id=account.id,status="pending")
+  db.add(tenant);db.flush();account.store_id=tenant.id
+  audit(db,"STORE_SUBMITTED_FOR_APPROVAL","store",tenant.id,f'{{"owner_account_id":"{account.id}"}}' )
+  db.commit()
  except IntegrityError:db.rollback();raise HTTPException(409,"An account with this email already exists")
  db.refresh(account);audit(db,"ACCOUNT_REGISTERED","account",account.id);db.commit()
  return {"token":issue_account_token(account),"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name}}
@@ -571,11 +603,15 @@ def register_account(payload:RegisterInput,db:Session=Depends(get_db)):
 def login_account(payload:LoginInput,db:Session=Depends(get_db)):
  account=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
  if not account or not account.active or not password_matches(payload.password,account.password_hash):raise HTTPException(401,"Email or password is incorrect")
+ if account.role!="platform_admin" and account.store_id:
+  tenant=db.get(StoreTenant,account.store_id)
+  if not tenant or tenant.status!="approved": raise HTTPException(403,"Your store is awaiting platform approval")
  return {"token":issue_account_token(account),"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name}}
 @app.get("/api/v1/auth/me",tags=["Authentication"])
 def account_me(authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
  a=account_from_token(authorization,db)
- return {"id":a.id,"name":a.name,"email":a.email,"role":a.role,"store_name":a.store_name}
+ tenant=db.get(StoreTenant,a.store_id) if a.store_id else None
+ return {"id":a.id,"name":a.name,"email":a.email,"role":a.role,"store_name":a.store_name,"store_id":a.store_id,"store_status":tenant.status if tenant else None}
 @app.post("/api/v1/auth/forgot-password",tags=["Authentication"])
 def forgot_password(payload:ForgotPasswordInput,db:Session=Depends(get_db)):
  a=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
@@ -598,3 +634,65 @@ def platform_summary(authorization:str|None=Header(default=None),db:Session=Depe
  account=account_from_token(authorization,db)
  if account.role!="platform_admin":raise HTTPException(403,"Platform administrator role required")
  return {"product_count":db.scalar(select(func.count(Product.id)) ) or 0,"active_product_count":db.scalar(select(func.count(Product.id)).where(Product.active.is_(True))) or 0,"order_count":db.scalar(select(func.count(Order.id))) or 0,"account_count":db.scalar(select(func.count(Account.id))) or 0,"store_owner_count":db.scalar(select(func.count(Account.id)).where(Account.role.in_(["store_owner","store_manager"]))) or 0,"staff_count":db.scalar(select(func.count(StaffMember.id))) or 0}
+
+
+# Platform control plane: tenant review, account administration, and auditable status changes.
+class StoreReviewInput(BaseModel):
+ status:str=Field(pattern=r"^(approved|rejected|suspended|pending)$")
+ notes:str=Field(default="",max_length=2000)
+class AccountAdminInput(BaseModel):
+ active:bool|None=None
+ role:str|None=Field(default=None,pattern=r"^(store_owner|store_manager|store_staff|platform_admin)$")
+class StoreAdminInput(BaseModel):
+ name:str|None=Field(default=None,min_length=2,max_length=180)
+ plan:str|None=Field(default=None,pattern=r"^(starter|growth|business|enterprise)$")
+ notes:str|None=Field(default=None,max_length=2000)
+def require_platform_admin(authorization:str|None=Header(default=None),db:Session=Depends(get_db))->Account:
+ account=account_from_token(authorization,db)
+ if account.role!="platform_admin":raise HTTPException(403,"Platform administrator role required")
+ return account
+@app.get("/api/v1/platform/stores",tags=["Platform Administration"])
+def platform_stores(status_filter:str|None=Query(default=None,alias="status"),authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ require_platform_admin(authorization,db)
+ q=select(StoreTenant).order_by(StoreTenant.created_at.desc())
+ if status_filter:
+  if status_filter not in ("pending","approved","rejected","suspended"):raise HTTPException(422,"Unsupported store status")
+  q=q.where(StoreTenant.status==status_filter)
+ rows=list(db.scalars(q))
+ return {"items":[{"id":s.id,"name":s.name,"slug":s.slug,"owner_account_id":s.owner_account_id,"owner_email":db.scalar(select(Account.email).where(Account.id==s.owner_account_id)),"status":s.status,"plan":s.plan,"notes":s.notes,"created_at":s.created_at.isoformat(),"reviewed_at":s.reviewed_at.isoformat() if s.reviewed_at else None} for s in rows],"total":len(rows)}
+@app.patch("/api/v1/platform/stores/{store_id}",tags=["Platform Administration"])
+def update_platform_store(store_id:str,payload:StoreAdminInput,authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ actor=require_platform_admin(authorization,db);store=db.get(StoreTenant,store_id)
+ if not store:raise HTTPException(404,"Store not found")
+ for field,value in payload.model_dump(exclude_unset=True).items():setattr(store,field,value)
+ audit(db,"PLATFORM_STORE_UPDATED","store",store.id,str(payload.model_dump(exclude_unset=True)));db.commit()
+ return {"id":store.id,"name":store.name,"slug":store.slug,"status":store.status,"plan":store.plan,"notes":store.notes}
+@app.post("/api/v1/platform/stores/{store_id}/review",tags=["Platform Administration"])
+def review_platform_store(store_id:str,payload:StoreReviewInput,authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ actor=require_platform_admin(authorization,db);store=db.get(StoreTenant,store_id)
+ if not store:raise HTTPException(404,"Store not found")
+ store.status=payload.status;store.notes=payload.notes;store.reviewed_at=utcnow();store.reviewed_by=actor.id
+ audit(db,"STORE_STATUS_CHANGED","store",store.id,f'{{"status":"{payload.status}","reviewed_by":"{actor.id}"}}')
+ db.commit()
+ return {"id":store.id,"status":store.status,"reviewed_at":store.reviewed_at.isoformat()}
+@app.get("/api/v1/platform/accounts",tags=["Platform Administration"])
+def platform_accounts(authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ require_platform_admin(authorization,db)
+ rows=list(db.scalars(select(Account).order_by(Account.created_at.desc())))
+ return {"items":[{"id":a.id,"name":a.name,"email":a.email,"role":a.role,"active":a.active,"store_id":a.store_id,"store_name":a.store_name,"created_at":a.created_at.isoformat()} for a in rows],"total":len(rows)}
+@app.patch("/api/v1/platform/accounts/{account_id}",tags=["Platform Administration"])
+def update_platform_account(account_id:str,payload:AccountAdminInput,authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ actor=require_platform_admin(authorization,db);target=db.get(Account,account_id)
+ if not target:raise HTTPException(404,"Account not found")
+ changes=payload.model_dump(exclude_unset=True)
+ if target.id==actor.id and changes.get("active") is False:raise HTTPException(409,"You cannot deactivate your own active administrator account")
+ if changes.get("role")=="platform_admin" and target.role!="platform_admin":
+  if not os.getenv("ALLOW_PLATFORM_ADMIN_PROMOTION","").lower()=="true":raise HTTPException(403,"Platform administrator promotion is disabled; set ALLOW_PLATFORM_ADMIN_PROMOTION=true for a controlled operation")
+ for field,value in changes.items():setattr(target,field,value)
+ audit(db,"PLATFORM_ACCOUNT_UPDATED","account",target.id,str(changes));db.commit()
+ return {"id":target.id,"email":target.email,"role":target.role,"active":target.active}
+@app.get("/api/v1/platform/audit-events",tags=["Platform Administration"])
+def platform_audit_events(limit:int=Query(default=100,ge=1,le=500),authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
+ require_platform_admin(authorization,db)
+ rows=list(db.scalars(select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(limit)))
+ return {"items":[{"id":e.id,"event_type":e.event_type,"entity_type":e.entity_type,"entity_id":e.entity_id,"details":e.details,"created_at":e.created_at.isoformat()} for e in rows],"total":len(rows)}
