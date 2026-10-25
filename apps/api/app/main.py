@@ -920,17 +920,18 @@ def password_matches(password:str,stored:str)->bool:
 def issue_account_token(account:Account)->str:
  if os.getenv("APP_ENV","development").lower()=="production" and (not os.getenv("AUTH_SECRET") or os.getenv("AUTH_SECRET")=="dev-only-change-this-secret"): raise HTTPException(503,"AUTH_SECRET must be configured before production authentication is enabled")
  expires=str(int(datetime.now(timezone.utc).timestamp())+60*60*12)
- payload=f"{account.id}.{account.role}.{expires}"
+ version=hashlib.sha256(account.password_hash.encode()).hexdigest()[:16]
+ payload=f"{account.id}.{account.role}.{expires}.{version}"
  sig=hmac.new(os.getenv("AUTH_SECRET","dev-only-change-this-secret").encode(),payload.encode(),hashlib.sha256).hexdigest()
  return base64.urlsafe_b64encode(f"{payload}.{sig}".encode()).decode()
 def account_from_token(authorization:str|None,db:Session)->Account:
  if not authorization or not authorization.startswith("Bearer "):raise HTTPException(401,"Sign in required")
  try:
-  raw=base64.urlsafe_b64decode(authorization[7:].encode()).decode();account_id,role,expires,sig=raw.rsplit(".",3);payload=f"{account_id}.{role}.{expires}"
+  raw=base64.urlsafe_b64decode(authorization[7:].encode()).decode();payload,sig=raw.rsplit(".",1);account_id,role,expires,version=payload.split(".",3)
   expected=hmac.new(os.getenv("AUTH_SECRET","dev-only-change-this-secret").encode(),payload.encode(),hashlib.sha256).hexdigest()
   if not hmac.compare_digest(sig,expected) or int(expires)<int(datetime.now(timezone.utc).timestamp()):raise ValueError()
   account=db.get(Account,account_id)
-  if not account or not account.active or account.role!=role:raise ValueError()
+  if not account or not account.active or account.role!=role or not hmac.compare_digest(version,hashlib.sha256(account.password_hash.encode()).hexdigest()[:16]):raise ValueError()
   return account
  except Exception:raise HTTPException(401,"Session is invalid or expired")
 @app.post("/api/v1/auth/register",tags=["Authentication"])
