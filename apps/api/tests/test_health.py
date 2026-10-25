@@ -120,3 +120,28 @@ def test_orders_are_scoped_to_their_shopping_session(client):
       json={"session_id":session,"customer_phone":"+250788123456","is_anonymous":True}).json()
     assert client.get(f"/api/v1/orders/{order['id']}",params={"session_id":session}).status_code==200
     assert client.get(f"/api/v1/orders/{order['id']}",params={"session_id":other}).status_code==404
+
+
+def test_advanced_retailer_workflows(client):
+    headers={"X-Admin-Key":"local-dev-admin-change-me"}
+    csv_text="sku,name,category,price,stock_quantity,description\\nCSV-ITEM-01,Imported Oats,Pantry,1800,12,Imported by test"
+    imported=client.post("/api/v1/admin/products/import-csv",headers=headers,json={"csv_text":csv_text})
+    assert imported.status_code==200 and imported.json()["created"]==1
+    product=next(p for p in client.get("/api/v1/products").json()["items"] if p["sku"]=="CSV-ITEM-01")
+    promotion=client.post("/api/v1/admin/promotions",headers=headers,json={"code":"SAVE10TEST","discount_percent":10,"min_subtotal":"1000"})
+    assert promotion.status_code==200
+    valid=client.get("/api/v1/promotions/SAVE10TEST",params={"subtotal":"2000"})
+    assert valid.status_code==200 and valid.json()["discount"]=="200.00"
+    supplier=client.post("/api/v1/admin/suppliers",headers=headers,json={"name":"Test Supplier","phone":"+250788123456"})
+    assert supplier.status_code==200
+    po=client.post("/api/v1/admin/purchase-orders",headers=headers,json={"supplier_id":supplier.json()["id"],"product_id":product["id"],"quantity":5,"unit_cost":"900"})
+    assert po.status_code==200
+    before=product["stock_quantity"]
+    received=client.post(f"/api/v1/admin/purchase-orders/{po.json()['id']}/receive",headers=headers)
+    assert received.status_code==200 and received.json()["new_stock_quantity"]==before+5
+    branch=client.post("/api/v1/admin/branches",headers=headers,json={"code":"KGL-TEST","name":"Kigali Test Branch"})
+    assert branch.status_code==200
+    stock=client.put(f"/api/v1/admin/branches/{branch.json()['id']}/inventory",headers=headers,json={"product_id":product["id"],"quantity":7})
+    assert stock.status_code==200 and stock.json()["quantity"]==7
+    staff=client.post("/api/v1/admin/staff",headers=headers,json={"name":"Store Viewer","email":"viewer-test@example.com","role":"viewer"})
+    assert staff.status_code==200 and staff.json()["role"]=="viewer"
