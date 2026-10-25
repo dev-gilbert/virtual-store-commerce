@@ -26,7 +26,7 @@ class Product(Base):
  sku:Mapped[str]=mapped_column(String(80),unique=True,index=True); name:Mapped[str]=mapped_column(String(180),index=True)
  description:Mapped[str]=mapped_column(Text,default=""); category:Mapped[str]=mapped_column(String(80),index=True)
  price:Mapped[Decimal]=mapped_column(Numeric(12,2)); currency:Mapped[str]=mapped_column(String(3),default="RWF")
- stock_quantity:Mapped[int]=mapped_column(Integer,default=0); image_url:Mapped[str|None]=mapped_column(String(500),nullable=True)
+ stock_quantity:Mapped[int]=mapped_column(Integer,default=0); low_stock_threshold:Mapped[int]=mapped_column(Integer,default=5); image_url:Mapped[str|None]=mapped_column(String(500),nullable=True)
  color:Mapped[str]=mapped_column(String(16),default="#799d79"); active:Mapped[bool]=mapped_column(Boolean,default=True)
  brand:Mapped[str]=mapped_column(String(120),default="",index=True); synonyms:Mapped[str]=mapped_column(Text,default="")
  unit:Mapped[str]=mapped_column(String(40),default="each"); ingredients:Mapped[str]=mapped_column(Text,default="")
@@ -261,20 +261,20 @@ def effective_session_id(session_id:str)->str:
 class ProductCreate(BaseModel):
  sku:str=Field(min_length=2,max_length=80); name:str=Field(min_length=2,max_length=180); description:str=Field(default="",max_length=2000)
  category:str=Field(min_length=2,max_length=80); price:Decimal=Field(gt=0,max_digits=12,decimal_places=2); currency:str=Field(default="RWF",min_length=3,max_length=3)
- stock_quantity:int=Field(default=0,ge=0,le=1000000); image_url:str|None=Field(default=None,max_length=500); color:str=Field(default="#799d79",pattern=r"^#[0-9a-fA-F]{6}$")
+ stock_quantity:int=Field(default=0,ge=0,le=1000000); low_stock_threshold:int=Field(default=5,ge=0,le=1000000); image_url:str|None=Field(default=None,max_length=500); color:str=Field(default="#799d79",pattern=r"^#[0-9a-fA-F]{6}$")
  brand:str=Field(default="",max_length=120); synonyms:str=Field(default="",max_length=1000); unit:str=Field(default="each",max_length=40)
  ingredients:str=Field(default="",max_length=4000); allergens:str=Field(default="",max_length=1000); nutrition:str=Field(default="",max_length=2000)
  gallery_json:str=Field(default="[]",max_length=10000); video_url:str|None=Field(default=None,max_length=500); discontinued:bool=False
 class ProductPatch(BaseModel):
  name:str|None=Field(default=None,min_length=2,max_length=180); description:str|None=Field(default=None,max_length=2000)
  category:str|None=Field(default=None,min_length=2,max_length=80); price:Decimal|None=Field(default=None,gt=0,max_digits=12,decimal_places=2)
- stock_quantity:int|None=Field(default=None,ge=0,le=1000000); active:bool|None=None
+ stock_quantity:int|None=Field(default=None,ge=0,le=1000000); low_stock_threshold:int|None=Field(default=None,ge=0,le=1000000); active:bool|None=None
  brand:str|None=Field(default=None,max_length=120); synonyms:str|None=Field(default=None,max_length=1000); unit:str|None=Field(default=None,max_length=40)
  ingredients:str|None=Field(default=None,max_length=4000); allergens:str|None=Field(default=None,max_length=1000); nutrition:str|None=Field(default=None,max_length=2000)
  gallery_json:str|None=Field(default=None,max_length=10000); video_url:str|None=Field(default=None,max_length=500); discontinued:bool|None=None
 class ProductOut(BaseModel):
  model_config=ConfigDict(from_attributes=True)
- id:str; sku:str; name:str; description:str; category:str; price:Decimal; currency:str; stock_quantity:int; image_url:str|None; color:str; active:bool
+ id:str; sku:str; name:str; description:str; category:str; price:Decimal; currency:str; stock_quantity:int; low_stock_threshold:int=5; image_url:str|None; color:str; active:bool
  brand:str=""; synonyms:str=""; unit:str="each"; ingredients:str=""; allergens:str=""; nutrition:str=""; gallery_json:str="[]"; video_url:str|None=None; discontinued:bool=False; average_rating:float|None=None
 class FixtureCreate(BaseModel):
  code:str=Field(min_length=2,max_length=80,pattern=r"^[A-Za-z0-9_-]+$")
@@ -1423,3 +1423,9 @@ def disable_mfa(payload:MfaVerifyInput,authorization:str|None=Header(default=Non
  if not pyotp.TOTP(account.mfa_secret).verify(payload.otp,valid_window=1):raise HTTPException(422,"Authenticator code is invalid")
  account.mfa_enabled=False;account.mfa_secret=None;db.commit();audit(db,"MFA_DISABLED","account",account.id);db.commit()
  return {"enabled":False}
+
+@app.get("/api/v1/admin/inventory/alerts",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def inventory_alerts(db:Session=Depends(get_db)):
+ products=list(db.scalars(select(Product).where(Product.active.is_(True))))
+ low=[{"id":p.id,"sku":p.sku,"name":p.name,"stock_quantity":p.stock_quantity,"low_stock_threshold":p.low_stock_threshold,"severity":"out_of_stock" if p.stock_quantity==0 else "low_stock"} for p in products if p.stock_quantity<=p.low_stock_threshold]
+ return {"items":low,"total":len(low),"out_of_stock":sum(1 for p in low if p["stock_quantity"]==0)}
