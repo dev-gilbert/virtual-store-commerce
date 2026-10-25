@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, uuid, hmac, hashlib, secrets, base64, time, smtplib, contextvars
+import os, uuid, hmac, hashlib, secrets, base64, time, smtplib, contextvars, json
 from decimal import InvalidOperation
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -1055,3 +1055,85 @@ def admin_list_orders(status_filter:str|None=Query(default=None,alias="status"),
  if status_filter:query=query.where(Order.status==status_filter)
  rows=list(db.scalars(query.limit(limit)))
  return {"items":[order_payload(order) for order in rows],"total":len(rows)}
+
+class LayoutVersionInput(BaseModel):
+ items:list[dict]=Field(min_length=1,max_length=200)
+def validate_layout_items(items:list[dict],db:Session)->list[str]:
+ issues=[];positions=[];valid_kinds={"shelf","drawer","refrigerator","checkout","display","table"}
+ for index,item in enumerate(items):
+  label=str(item.get("name") or f"Fixture {index+1}")
+  try:x=float(item.get("x",0));z=float(item.get("z",0))
+  except (TypeError,ValueError):issues.append(label+" has invalid coordinates.");continue
+  if not -20<=x<=20 or not -20<=z<=20:issues.append(label+" is outside floor bounds.")
+  if item.get("kind","shelf") not in valid_kinds:issues.append(label+" has an unsupported fixture type.")
+  for other_x,other_z,other_label in positions:
+   if (x-other_x)**2+(z-other_z)**2<1.44:issues.append(label+" is too close to "+other_label+".")
+  positions.append((x,z,label))
+  product_ids=item.get("products",[])
+  if not isinstance(product_ids,list):issues.append(label+" product list is invalid.");continue
+  if len(set(product_ids))!=len(product_ids):issues.append(label+" contains duplicate product assignments.")
+  for product_id in product_ids:
+   if not isinstance(product_id,str) or not db.get(Product,product_id):issues.append(label+" references a product outside this store.")
+ return issues
+def apply_layout_version(version:StoreLayoutVersion,db:Session):
+ items=json.loads(version.layout_json)
+ issues=validate_layout_items(items,db)
+ if issues:raise HTTPException(422,{"message":"Layout validation failed","issues":issues[:30]})
+ live=list(db.scalars(select(Fixture)))
+ live_by_id={fixture.id:fixture for fixture in live}
+ wanted_live_ids={str(item.get("id")) for item in items if not str(item.get("id","")).startswith("draft-") and str(item.get("id")) in live_by_id}
+ for fixture in live:
+  if fixture.id not in wanted_live_ids:
+   for placement in list(db.scalars(select(ProductPlacement).where(ProductPlacement.fixture_id==fixture.id))):db.delete(placement)
+   db.delete(fixture)
+ db.flush()
+ normalized=[]
+ tenant_id=tenant_scope.get()
+ code_prefix=("LAYOUT-"+tenant_id[:6] if tenant_id and tenant_id!="__public__" else "LAYOUT-DEFAULT")
+ for index,item in enumerate(items):
+  fixture_id=str(item.get("id",""))
+  fixture=live_by_id.get(fixture_id)
+  if fixture is None:
+   code=f"{code_prefix}-{uuid.uuid4().hex[:8]}"
+   fixture=Fixture(code=code,name=str(item.get("name") or f"Fixture {index+1}"),kind=str(item.get("kind") or "shelf"),x=float(item.get("x",0)),y=0,z=float(item.get("z",0)))
+   db.add(fixture);db.flush()
+  else:
+   fixture.name=str(item.get("name") or fixture.name);fixture.kind=str(item.get("kind") or fixture.kind);fixture.x=float(item.get("x",fixture.x));fixture.z=float(item.get("z",fixture.z))
+  for placement in list(db.scalars(select(ProductPlacement).where(ProductPlacement.fixture_id==fixture.id))):db.delete(placement)
+  for slot,product_id in enumerate(item.get("products",[])):
+   db.add(ProductPlacement(product_id=product_id,fixture_id=fixture.id,shelf_level=0,slot=slot))
+  normalized.append({"id":fixture.id,"name":fixture.name,"kind":fixture.kind,"x":float(fixture.x),"z":float(fixture.z),"products":list(item.get("products",[]))})
+ db.flush()
+ for old in db.scalars(select(StoreLayoutVersion).where(StoreLayoutVersion.status=="published")):old.status="archived"
+ version.layout_json=json.dumps(normalized);version.status="published"
+ audit(db,"STORE_LAYOUT_PUBLISHED","layout_version",version.id,json.dumps({"version":version.version_number}))
+ db.commit()
+ return {"id":version.id,"version_number":version.version_number,"status":version.status,"items":normalized}
+@app.get("/api/v1/admin/layout-versions",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def list_layout_versions(db:Session=Depends(get_db)):
+ rows=list(db.scalars(select(StoreLayoutVersion).order_by(StoreLayoutVersion.version_number.desc()).limit(100)))
+ return {"items":[{"id":v.id,"version_number":v.version_number,"status":v.status,"created_at":v.created_at.isoformat(),"item_count":len(json.loads(v.layout_json))} for v in rows],"total":len(rows)}
+@app.post("/api/v1/admin/layout-versions",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def save_layout_version(payload:LayoutVersionInput,db:Session=Depends(get_db)):
+ issues=validate_layout_items(payload.items,db)
+ if issues:raise HTTPException(422,{"message":"Layout validation failed","issues":issues[:30]})
+ latest=db.scalar(select(func.max(StoreLayoutVersion.version_number))) or 0
+ version=StoreLayoutVersion(version_number=latest+1,status="draft",layout_json=json.dumps(payload.items))
+ db.add(version);db.flush();audit(db,"STORE_LAYOUT_DRAFT_SAVED","layout_version",version.id,json.dumps({"version":version.version_number}));db.commit();db.refresh(version)
+ return {"id":version.id,"version_number":version.version_number,"status":version.status,"items":payload.items}
+@app.post("/api/v1/admin/layout-versions/{version_id}/validate",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def validate_layout_version(version_id:str,db:Session=Depends(get_db)):
+ version=db.get(StoreLayoutVersion,version_id)
+ if not version:raise HTTPException(404,"Layout version not found")
+ items=json.loads(version.layout_json);issues=validate_layout_items(items,db)
+ return {"valid":not issues,"issues":issues,"version_number":version.version_number}
+@app.post("/api/v1/admin/layout-versions/{version_id}/publish",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def publish_layout_version(version_id:str,db:Session=Depends(get_db)):
+ version=db.get(StoreLayoutVersion,version_id)
+ if not version:raise HTTPException(404,"Layout version not found")
+ return apply_layout_version(version,db)
+@app.post("/api/v1/admin/layout-versions/{version_id}/rollback",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def rollback_layout_version(version_id:str,db:Session=Depends(get_db)):
+ version=db.get(StoreLayoutVersion,version_id)
+ if not version:raise HTTPException(404,"Layout version not found")
+ return apply_layout_version(version,db)
