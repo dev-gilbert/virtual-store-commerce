@@ -49,6 +49,9 @@ class Order(Base):
  session_id:Mapped[str]=mapped_column(String(100),index=True); idempotency_key:Mapped[str]=mapped_column(String(160),unique=True,index=True)
  status:Mapped[str]=mapped_column(String(30),default="pending_payment"); payment_status:Mapped[str]=mapped_column(String(30),default="unpaid")
  subtotal:Mapped[Decimal]=mapped_column(Numeric(12,2)); currency:Mapped[str]=mapped_column(String(3),default="RWF")
+ customer_name:Mapped[str|None]=mapped_column(String(180),nullable=True); customer_phone:Mapped[str]=mapped_column(String(40),default="")
+ customer_email:Mapped[str|None]=mapped_column(String(254),nullable=True); delivery_address:Mapped[str|None]=mapped_column(Text,nullable=True)
+ delivery_instructions:Mapped[str|None]=mapped_column(Text,nullable=True); is_anonymous:Mapped[bool]=mapped_column(Boolean,default=False)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
  items:Mapped[list["OrderItem"]]=relationship(back_populates="order",cascade="all, delete-orphan")
 class OrderItem(Base):
@@ -88,7 +91,14 @@ class PlacementCreate(BaseModel):
  slot:int=Field(default=0,ge=0,le=20)
 class CartItemInput(BaseModel):
  product_id:str; quantity:int=Field(default=1,ge=1,le=99)
-class CheckoutInput(BaseModel): session_id:str=Field(min_length=8,max_length=100)
+class CheckoutInput(BaseModel):
+ session_id:str=Field(min_length=8,max_length=100)
+ customer_phone:str=Field(min_length=7,max_length=40)
+ customer_name:str|None=Field(default=None,max_length=180)
+ customer_email:str|None=Field(default=None,max_length=254)
+ delivery_address:str|None=Field(default=None,max_length=1000)
+ delivery_instructions:str|None=Field(default=None,max_length=1000)
+ is_anonymous:bool=False
 def audit(db,event,entity,entity_id,details="{}"): db.add(AuditEvent(event_type=event,entity_type=entity,entity_id=entity_id,details=details))
 def seed_data(db):
  if db.scalar(select(Product.id).limit(1)): return
@@ -114,12 +124,21 @@ def cart_payload(db,session_id):
   items.append({"product_id":p.id,"sku":p.sku,"name":p.name,"price":str(p.price),"currency":p.currency,"quantity":r.quantity,"line_total":str(line),"stock_quantity":p.stock_quantity})
  return {"session_id":session_id,"items":items,"item_count":count,"subtotal":str(subtotal),"currency":"RWF"}
 def order_payload(o):
- return {"id":o.id,"status":o.status,"payment_status":o.payment_status,"subtotal":str(o.subtotal),"currency":o.currency,"created_at":o.created_at.isoformat(),
+ return {"id":o.id,"status":o.status,"payment_status":o.payment_status,"subtotal":str(o.subtotal),"currency":o.currency,"created_at":o.created_at.isoformat(),"customer_name":o.customer_name,"customer_phone":o.customer_phone,"customer_email":o.customer_email,"delivery_address":o.delivery_address,"delivery_instructions":o.delivery_instructions,"is_anonymous":o.is_anonymous,
  "items":[{"product_id":i.product_id,"sku":i.sku,"name":i.product_name,"unit_price":str(i.unit_price),"quantity":i.quantity} for i in o.items],
  "payment":{"mode":"sandbox","next_action":f"/api/v1/payments/{o.id}/simulate-success"}}
+def ensure_order_customer_columns():
+ from sqlalchemy import inspect, text
+ inspector=inspect(engine)
+ existing={column["name"] for column in inspector.get_columns("orders")} if inspector.has_table("orders") else set()
+ additions={"customer_name":"VARCHAR(180)","customer_phone":"VARCHAR(40) NOT NULL DEFAULT ''","customer_email":"VARCHAR(254)","delivery_address":"TEXT","delivery_instructions":"TEXT","is_anonymous":"BOOLEAN NOT NULL DEFAULT 0"}
+ with engine.begin() as connection:
+  for name,sql_type in additions.items():
+   if name not in existing: connection.execute(text(f"ALTER TABLE orders ADD COLUMN {name} {sql_type}"))
 @asynccontextmanager
 async def lifespan(_):
  Base.metadata.create_all(bind=engine)
+ ensure_order_customer_columns()
  with SessionLocal() as db: seed_data(db)
  yield
 app=FastAPI(title="Virtual Store Commerce API",version="0.2.0",description="Shared catalogue, 3D layout, cart, orders and sandbox payments.",lifespan=lifespan)
@@ -208,6 +227,7 @@ def remove_cart(product_id:str,session_id:str=Query(min_length=8,max_length=100)
  return cart_payload(db,session_id)
 @app.post("/api/v1/checkout",tags=["Orders"])
 def checkout(payload:CheckoutInput,idempotency_key:str=Header(alias="Idempotency-Key",min_length=8,max_length=160),db:Session=Depends(get_db)):
+ if not payload.is_anonymous and (not payload.customer_name or not payload.customer_name.strip() or not payload.delivery_address or not payload.delivery_address.strip()): raise HTTPException(422,"Name and delivery address are required unless you choose anonymous checkout")
  old=db.scalar(select(Order).where(Order.idempotency_key==idempotency_key))
  if old: return order_payload(old)
  cart=list(db.scalars(select(CartItem).where(CartItem.session_id==payload.session_id)))
@@ -218,7 +238,7 @@ def checkout(payload:CheckoutInput,idempotency_key:str=Header(alias="Idempotency
   if not p or not p.active: raise HTTPException(409,"A product in your cart is no longer available")
   if row.quantity>p.stock_quantity: raise HTTPException(409,f"Insufficient stock for {p.name}")
   basket.append((p,row.quantity)); subtotal+=p.price*row.quantity
- order=Order(session_id=payload.session_id,idempotency_key=idempotency_key,subtotal=subtotal,currency="RWF"); db.add(order); db.flush()
+ order=Order(session_id=payload.session_id,idempotency_key=idempotency_key,subtotal=subtotal,currency="RWF",customer_name=(payload.customer_name.strip() if payload.customer_name else None),customer_phone=payload.customer_phone.strip(),customer_email=(payload.customer_email.strip() if payload.customer_email else None),delivery_address=(payload.delivery_address.strip() if payload.delivery_address else None),delivery_instructions=(payload.delivery_instructions.strip() if payload.delivery_instructions else None),is_anonymous=payload.is_anonymous); db.add(order); db.flush()
  for p,qty in basket:
   p.stock_quantity-=qty; db.add(OrderItem(order_id=order.id,product_id=p.id,sku=p.sku,product_name=p.name,unit_price=p.price,quantity=qty))
   audit(db,"INVENTORY_RESERVED","product",p.id,f'{{"quantity":{qty},"order_id":"{order.id}"}}')
@@ -231,9 +251,9 @@ def checkout(payload:CheckoutInput,idempotency_key:str=Header(alias="Idempotency
   raise HTTPException(409,"Checkout conflict; retry with the same idempotency key")
  db.refresh(order); return order_payload(order)
 @app.get("/api/v1/orders/{order_id}",tags=["Orders"])
-def get_order(order_id:str,db:Session=Depends(get_db)):
+def get_order(order_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
  o=db.get(Order,order_id)
- if not o: raise HTTPException(404,"Order not found")
+ if not o or o.session_id!=session_id: raise HTTPException(404,"Order not found")
  return order_payload(o)
 @app.get("/api/v1/orders",tags=["Orders"])
 def list_orders(session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
