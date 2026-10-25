@@ -25,9 +25,9 @@ function ProductBox({p,onSelect,position,highlighted}:{p:Placed;onSelect:(id:str
  const image=p.image_url||fallback;
  const texture=useTexture(image);
  return <group ref={productRef} position={position} onClick={e=>{e.stopPropagation();onSelect(p.product_id)}}>
-  <mesh castShadow><boxGeometry args={[.25,.3,.22]}/><meshStandardMaterial color={highlighted?"#f3e7a2":p.color||"#d6d0c0"} emissive={highlighted?"#f0c94a":"#000000"} emissiveIntensity={highlighted?.45:0} roughness={.8}/></mesh>
-  <mesh position={[0,0,.113]}><planeGeometry args={[.19,.23]}/><meshBasicMaterial map={texture} toneMapped={false}/></mesh>
-  <Html distanceFactor={18} position={[0,.19,.12]} center style={{pointerEvents:"none",userSelect:"none"}}><div className="product-hotspot-label"><strong>{p.name}</strong><span>{Number(p.price).toLocaleString()} RWF</span></div></Html>
+  <mesh castShadow onClick={e=>{e.stopPropagation();onSelect(p.product_id)}}><boxGeometry args={[.25,.3,.22]}/><meshStandardMaterial color={highlighted?"#f3e7a2":p.color||"#d6d0c0"} emissive={highlighted?"#f0c94a":"#000000"} emissiveIntensity={highlighted?.45:0} roughness={.8}/></mesh>
+  <mesh position={[0,0,.113]} onClick={e=>{e.stopPropagation();onSelect(p.product_id)}}><planeGeometry args={[.19,.23]}/><meshBasicMaterial map={texture} toneMapped={false}/></mesh>
+  {highlighted&&<Html distanceFactor={18} position={[0,.22,.12]} center style={{pointerEvents:"none",userSelect:"none"}}><div className="product-hotspot-label"><strong>{p.name}</strong><span>{Number(p.price).toLocaleString()} RWF</span></div></Html>}
  </group>
 }
 function FixtureView({fixture,onSelect,highlightedId}:{fixture:Fixture;onSelect:(id:string)=>void;highlightedId:string|null}) {
