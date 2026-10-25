@@ -11,8 +11,7 @@ const keyDraft="virtual-store-layout-draft-v1";
 export default function VisualStoreBuilder(){
  const [adminKey,setAdminKey]=useState(""),[products,setProducts]=useState<Product[]>([]),[fixtures,setFixtures]=useState<Fixture[]>([]),[items,setItems]=useState<LayoutItem[]>([]),[selected,setSelected]=useState(""),[tab,setTab]=useState<"2d"|"3d">("2d"),[message,setMessage]=useState(""),[error,setError]=useState(""),[loading,setLoading]=useState(false),[dragProduct,setDragProduct]=useState("");
  const load=useCallback(async()=>{const [p,l]=await Promise.all([api<{items:Product[]}>("/api/v1/products"),api<{items:Fixture[]}>("/api/v1/store-layout")]);setProducts(p.items);setFixtures(l.items);setItems(l.items.map(f=>({id:f.id,name:f.name,kind:(f.kind==="table"?"display":f.kind) as LayoutItem["kind"],x:Number(f.position[0]),z:Number(f.position[2]),products:f.products.map(p=>p.product_id)})))},[]);
- // eslint-disable-next-line react-hooks/set-state-in-effect
- useEffect(()=>{load().catch((e:Error)=>setError(e.message))},[load]);
+ useEffect(()=>{Promise.resolve().then(()=>load()).catch((e:Error)=>setError(e.message))},[load]);
  // eslint-disable-next-line react-hooks/set-state-in-effect
  useEffect(()=>{try{const raw=localStorage.getItem(keyDraft);if(raw){const saved=JSON.parse(raw) as LayoutItem[];if(Array.isArray(saved)&&saved.length)setItems(saved)}}catch{}},[]);
  const current=items.find(x=>x.id===selected)||null;
