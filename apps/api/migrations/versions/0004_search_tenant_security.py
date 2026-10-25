@@ -35,6 +35,11 @@ def _add_missing(table_name, column):
         if column.name not in existing:
             op.add_column(table_name, column)
 
+ACCOUNT_COLUMNS = {
+    "mfa_secret": sa.Column("mfa_secret", sa.String(64), nullable=True),
+    "mfa_enabled": sa.Column("mfa_enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
+}
+
 ORDER_COLUMNS = {
     "discount_amount": sa.Column("discount_amount", sa.Numeric(12, 2), nullable=False, server_default="0"),
     "delivery_fee": sa.Column("delivery_fee", sa.Numeric(12, 2), nullable=False, server_default="0"),
@@ -50,6 +55,8 @@ def upgrade():
         model.__table__.create(bind=bind, checkfirst=True)
     for name, column in RICH_PRODUCT_COLUMNS.items():
         _add_missing("products", column)
+    for name, column in ACCOUNT_COLUMNS.items():
+        _add_missing("accounts", column)
     for name, column in ORDER_COLUMNS.items():
         _add_missing("orders", column)
     for table_name in TENANT_TABLES:
