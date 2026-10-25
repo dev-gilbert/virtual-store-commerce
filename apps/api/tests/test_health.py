@@ -34,7 +34,7 @@ def test_cart_checkout_idempotency_and_sandbox_payment(client):
     assert receipt.status_code==200 and receipt.headers["content-type"].startswith("application/pdf") and receipt.content.startswith(b"%PDF")
     again=client.post("/api/v1/checkout",headers={"Idempotency-Key":key},json={"session_id":session,"customer_phone":"+250788123456","customer_name":"Test Customer","delivery_address":"Kigali"})
     assert again.json()["id"]==order["id"]
-    paid=client.post(f"/api/v1/payments/{order['id']}/simulate-success")
+    paid=client.post(f"/api/v1/payments/{order['id']}/simulate-success",params={"session_id":session})
     assert paid.json()["payment_status"]=="paid"
     assert "no duplicate action" in client.post(f"/api/v1/payments/{order['id']}/simulate-success").json()["message"]
 
@@ -55,7 +55,7 @@ def test_cancelling_unpaid_order_releases_reserved_stock(client):
                       json={"session_id":session,"customer_phone":"+250788123456","customer_name":"Test Customer","delivery_address":"Kigali"}).json()
     after_reservation=client.get(f"/api/v1/products/{product['id']}").json()["stock_quantity"]
     assert after_reservation==original_stock-1
-    cancelled=client.post(f"/api/v1/orders/{order['id']}/cancel")
+    cancelled=client.post(f"/api/v1/orders/{order['id']}/cancel",params={"session_id":session})
     assert cancelled.status_code==200 and cancelled.json()["status"]=="cancelled"
     restored=client.get(f"/api/v1/products/{product['id']}").json()["stock_quantity"]
     assert restored==original_stock
