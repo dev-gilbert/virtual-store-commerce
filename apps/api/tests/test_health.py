@@ -30,7 +30,7 @@ def test_cart_checkout_idempotency_and_sandbox_payment(client):
     assert r.status_code==200
     order=r.json()
     assert order["status"]=="pending_payment" and len(order["items"])==1
-    again=client.post("/api/v1/checkout",headers={"Idempotency-Key":key},json={"session_id":session})
+    again=client.post("/api/v1/checkout",headers={"Idempotency-Key":key},json={"session_id":session,"customer_phone":"+250788123456","customer_name":"Test Customer","delivery_address":"Kigali"})
     assert again.json()["id"]==order["id"]
     paid=client.post(f"/api/v1/payments/{order['id']}/simulate-success")
     assert paid.json()["payment_status"]=="paid"
