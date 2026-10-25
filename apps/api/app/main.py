@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Generator
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, create_engine, select, func
@@ -251,7 +251,7 @@ async def lifespan(_):
   seed_platform_admin(db)
  yield
 app=FastAPI(title="Virtual Store Commerce API",version="0.2.0",description="Shared catalogue, 3D layout, cart, orders and sandbox payments.",lifespan=lifespan)
-app.add_middleware(CORSMiddleware,allow_origins=os.getenv("CORS_ORIGINS","http://localhost:3000").split(","),allow_credentials=True,allow_methods=["GET","POST","PATCH","DELETE","OPTIONS"],allow_headers=["Content-Type","Authorization","Idempotency-Key","X-Admin-Key"])
+app.add_middleware(CORSMiddleware,allow_origins=os.getenv("CORS_ORIGINS","http://localhost:3000").split(","),allow_credentials=True,allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],allow_headers=["Content-Type","Authorization","Idempotency-Key","X-Admin-Key"])
 @app.get("/health",tags=["Operations"])
 def health(): return {"status":"ok","service":"virtual-store-commerce-api","database":"connected"}
 @app.get("/api/v1/products",tags=["Products"])
@@ -392,10 +392,12 @@ def cancel_order(order_id:str,db:Session=Depends(get_db)):
   if p: p.stock_quantity+=item.quantity
  o.status="cancelled"; audit(db,"ORDER_CANCELLED_STOCK_RELEASED","order",o.id); db.commit()
  return {"order_id":o.id,"status":o.status}
-def require_admin(x_admin_key:str|None=Header(default=None,alias="X-Admin-Key"),authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
- if x_admin_key and hmac.compare_digest(x_admin_key,os.getenv("ADMIN_API_KEY","local-dev-admin-change-me")): return True
- if authorization and authorization.startswith("Bearer "):
-  account=account_from_token(authorization,db)
+def require_admin(request:Request,x_admin_key:str|None=Header(default=None,alias="X-Admin-Key"),authorization:str|None=Header(default=None),session_cookie:str|None=Cookie(default=None,alias="vsc_session"),csrf_cookie:str|None=Cookie(default=None,alias="vsc_csrf"),csrf_header:str|None=Header(default=None,alias="X-CSRF-Token"),db:Session=Depends(get_db)):
+ if os.getenv("APP_ENV","development").lower()!="production" and x_admin_key and hmac.compare_digest(x_admin_key,os.getenv("ADMIN_API_KEY","local-dev-admin-change-me")): return True
+ if (authorization and authorization.startswith("Bearer ")) or session_cookie:
+  if not authorization and request.method not in ("GET","HEAD","OPTIONS"):
+   if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie,csrf_header): raise HTTPException(403,"CSRF token missing or invalid")
+  account=account_from_token(authorization or ("Bearer "+session_cookie if session_cookie else None),db)
   if account.role in ("store_owner","store_manager"):
    if account.store_id:
     tenant=db.get(StoreTenant,account.store_id)
@@ -615,6 +617,7 @@ def password_matches(password:str,stored:str)->bool:
   return hmac.compare_digest(hashlib.scrypt(password.encode(),salt=salt,n=2**14,r=8,p=1,dklen=32),expected)
  except Exception:return False
 def issue_account_token(account:Account)->str:
+ if os.getenv("APP_ENV","development").lower()=="production" and (not os.getenv("AUTH_SECRET") or os.getenv("AUTH_SECRET")=="dev-only-change-this-secret"): raise HTTPException(503,"AUTH_SECRET must be configured before production authentication is enabled")
  expires=str(int(datetime.now(timezone.utc).timestamp())+60*60*12)
  payload=f"{account.id}.{account.role}.{expires}"
  sig=hmac.new(os.getenv("AUTH_SECRET","dev-only-change-this-secret").encode(),payload.encode(),hashlib.sha256).hexdigest()
@@ -630,7 +633,7 @@ def account_from_token(authorization:str|None,db:Session)->Account:
   return account
  except Exception:raise HTTPException(401,"Session is invalid or expired")
 @app.post("/api/v1/auth/register",tags=["Authentication"])
-def register_account(payload:RegisterInput,db:Session=Depends(get_db)):
+def register_account(payload:RegisterInput,response:Response,db:Session=Depends(get_db)):
  email=payload.email.strip().lower()
  if db.scalar(select(Account.id).where(Account.email==email)):raise HTTPException(409,"An account with this email already exists")
  account=Account(name=payload.name.strip(),email=email,password_hash=password_digest(payload.password),role="store_owner",store_name=payload.store_name)
@@ -647,13 +650,16 @@ def register_account(payload:RegisterInput,db:Session=Depends(get_db)):
  db.refresh(account);audit(db,"ACCOUNT_REGISTERED","account",account.id);db.commit()
  return {"token":issue_account_token(account),"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name,"store_id":account.store_id,"store_status":db.get(StoreTenant,account.store_id).status if account.store_id else None}}
 @app.post("/api/v1/auth/login",tags=["Authentication"])
-def login_account(payload:LoginInput,db:Session=Depends(get_db)):
+def login_account(payload:LoginInput,response:Response,db:Session=Depends(get_db)):
  account=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
  if not account or not account.active or not password_matches(payload.password,account.password_hash):raise HTTPException(401,"Email or password is incorrect")
  if account.role!="platform_admin" and account.store_id:
   tenant=db.get(StoreTenant,account.store_id)
   if not tenant or tenant.status!="approved": raise HTTPException(403,"Your store is awaiting platform approval")
- return {"token":issue_account_token(account),"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name}}
+ token=issue_account_token(account); csrf=secrets.token_urlsafe(32); production=os.getenv("APP_ENV","development").lower()=="production"
+ response.set_cookie("vsc_session",token,httponly=True,secure=production,samesite="lax",max_age=43200,path="/")
+ response.set_cookie("vsc_csrf",csrf,httponly=False,secure=production,samesite="lax",max_age=43200,path="/")
+ return {"token":token,"csrf_token":csrf,"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name,"store_id":account.store_id,"store_status":db.get(StoreTenant,account.store_id).status if account.store_id else None}}
 @app.get("/api/v1/auth/me",tags=["Authentication"])
 def account_me(authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
  a=account_from_token(authorization,db)
@@ -694,8 +700,10 @@ class StoreAdminInput(BaseModel):
  name:str|None=Field(default=None,min_length=2,max_length=180)
  plan:str|None=Field(default=None,pattern=r"^(starter|growth|business|enterprise)$")
  notes:str|None=Field(default=None,max_length=2000)
-def require_platform_admin(authorization:str|None=Header(default=None),db:Session=Depends(get_db))->Account:
- account=account_from_token(authorization,db)
+def require_platform_admin(request:Request,authorization:str|None=Header(default=None),session_cookie:str|None=Cookie(default=None,alias="vsc_session"),csrf_cookie:str|None=Cookie(default=None,alias="vsc_csrf"),csrf_header:str|None=Header(default=None,alias="X-CSRF-Token"),db:Session=Depends(get_db))->Account:
+ if not authorization and session_cookie and request.method not in ("GET","HEAD","OPTIONS"):
+  if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie,csrf_header): raise HTTPException(403,"CSRF token missing or invalid")
+ account=account_from_token(authorization or ("Bearer "+session_cookie if session_cookie else None),db)
  if account.role!="platform_admin":raise HTTPException(403,"Platform administrator role required")
  return account
 @app.get("/api/v1/platform/stores",tags=["Platform Administration"])
