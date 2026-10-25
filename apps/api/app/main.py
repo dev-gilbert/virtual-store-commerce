@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, uuid, hmac, hashlib, secrets, base64, time, smtplib, contextvars, json, io
+import os, uuid, hmac, hashlib, secrets, base64, time, smtplib, contextvars, json, io, logging
 from decimal import InvalidOperation
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -591,6 +591,17 @@ def cancel_order(order_id:str,session_id:str=Query(min_length=8,max_length=100),
   if p: p.stock_quantity+=item.quantity; db.add(StockMovement(product_id=p.id,quantity_delta=item.quantity,reason="order_cancelled_release",reference=o.id))
  o.status="cancelled"; audit(db,"ORDER_CANCELLED_STOCK_RELEASED","order",o.id); db.commit()
  return {"order_id":o.id,"status":o.status}
+def notify_order_status(order:Order):
+ if not order.customer_email or not os.getenv("SMTP_HOST") or not os.getenv("SMTP_FROM"):return
+ try:
+  message=EmailMessage();message["Subject"]="Order update: "+order.id[:8].upper();message["From"]=os.getenv("SMTP_FROM");message["To"]=order.customer_email
+  details="Your order status is now "+order.status.replace("_"," ")+". Order reference: "+order.id[:8].upper()+". Delivery method: "+order.delivery_method+". Expected window: "+(order.expected_delivery_window or "not yet scheduled")+". Total: "+str(order.total)+" "+order.currency+"."
+  message.set_content(details)
+  with smtplib.SMTP(os.getenv("SMTP_HOST"),int(os.getenv("SMTP_PORT","587")),timeout=10) as server:
+   if os.getenv("SMTP_STARTTLS","true").lower()=="true":server.starttls()
+   if os.getenv("SMTP_USERNAME"):server.login(os.getenv("SMTP_USERNAME"),os.getenv("SMTP_PASSWORD",""))
+   server.send_message(message)
+ except Exception:logging.exception("Order status email failed for order %s",order.id)
 def require_admin(request:Request,x_admin_key:str|None=Header(default=None,alias="X-Admin-Key"),authorization:str|None=Header(default=None),session_cookie:str|None=Cookie(default=None,alias="vsc_session"),csrf_cookie:str|None=Cookie(default=None,alias="vsc_csrf"),csrf_header:str|None=Header(default=None,alias="X-CSRF-Token"),db:Session=Depends(get_db)):
  if os.getenv("APP_ENV","development").lower()!="production" and x_admin_key and hmac.compare_digest(x_admin_key,os.getenv("ADMIN_API_KEY","local-dev-admin-change-me")): return True
  if (authorization and authorization.startswith("Bearer ")) or session_cookie:
