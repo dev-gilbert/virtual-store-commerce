@@ -50,6 +50,33 @@ def test_storefront_and_catalogue_are_isolated_by_tenant(client):
     )
     assert created.status_code == 201, created.text
 
+    auth_headers = {"Authorization": f"Bearer {token}"}
+    draft = client.post(
+        "/api/v1/admin/layout-versions",
+        headers=auth_headers,
+        json={"items":[{"id":"draft-shelf","name":"Tenant Fresh Shelf","kind":"shelf","x":0,"z":0,"products":[created.json()["id"]]}]},
+    )
+    assert draft.status_code == 200, draft.text
+    validated = client.post(f"/api/v1/admin/layout-versions/{draft.json()['id']}/validate", headers=auth_headers)
+    assert validated.status_code == 200 and validated.json()["valid"] is True
+    published = client.post(f"/api/v1/admin/layout-versions/{draft.json()['id']}/publish", headers=auth_headers)
+    assert published.status_code == 200, published.text
+    live_layout = client.get("/api/v1/store-layout", headers=auth_headers)
+    assert live_layout.status_code == 200 and live_layout.json()["total"] == 1
+    fixture = live_layout.json()["items"][0]
+    assert fixture["products"][0]["product_id"] == created.json()["id"]
+
+    empty_shelf_draft = client.post(
+        "/api/v1/admin/layout-versions",
+        headers=auth_headers,
+        json={"items":[{"id":fixture["id"],"name":fixture["name"],"kind":"shelf","x":0,"z":0,"products":[]}]},
+    )
+    assert empty_shelf_draft.status_code == 200, empty_shelf_draft.text
+    assert client.post(f"/api/v1/admin/layout-versions/{empty_shelf_draft.json()['id']}/publish", headers=auth_headers).status_code == 200
+    restored = client.post(f"/api/v1/admin/layout-versions/{draft.json()['id']}/rollback", headers=auth_headers)
+    assert restored.status_code == 200, restored.text
+    assert client.get("/api/v1/store-layout", headers=auth_headers).json()["items"][0]["products"][0]["product_id"] == created.json()["id"]
+
     tenant_results = client.get(
         "/api/v1/products",
         params={"q": sku},
