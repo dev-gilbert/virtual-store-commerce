@@ -117,3 +117,29 @@ def test_storefront_and_catalogue_are_isolated_by_tenant(client):
     )
     assert other_results.status_code == 200
     assert other_results.json()["total"] == 0
+
+    tenant_headers = {"X-Store-ID": store_id}
+    order_session = "tenant-order-" + suffix
+    added = client.post(
+        "/api/v1/cart/items?session_id=" + order_session,
+        headers=tenant_headers,
+        json={"product_id": created.json()["id"], "quantity": 1},
+    )
+    assert added.status_code == 200, added.text
+    order = client.post(
+        "/api/v1/checkout",
+        headers={**tenant_headers, "Idempotency-Key": "tenant-order-" + suffix},
+        json={
+            "session_id": order_session,
+            "customer_name": "Tenant Shopper",
+            "customer_phone": "+250788123456",
+            "delivery_address": "Tenant delivery address",
+        },
+    )
+    assert order.status_code == 200, order.text
+    cross_tenant_order = client.get(
+        f"/api/v1/orders/{order.json()['id']}",
+        params={"session_id": order_session},
+        headers={"X-Store-ID": other_store_id},
+    )
+    assert cross_tenant_order.status_code == 404
