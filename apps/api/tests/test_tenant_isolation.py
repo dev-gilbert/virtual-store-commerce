@@ -1,6 +1,13 @@
 from uuid import uuid4
+import pytest
+from fastapi.testclient import TestClient
 
-from app.main import Account, StoreTenant, SessionLocal, password_digest, issue_account_token
+from app.main import Account, StoreTenant, SessionLocal, password_digest, issue_account_token, app
+
+@pytest.fixture
+def client():
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def test_storefront_and_catalogue_are_isolated_by_tenant(client):
