@@ -362,11 +362,11 @@ Use this tracker as a planning aid, not proof of implementation. Update each sta
 
 | ID | Feature | Priority | Status |
 |---|---|---:|---|
-| F01 | Intelligent search and discovery | P0 | Core slice implemented; autocomplete and advanced filters remain |
-| F02 | Rich product pages | P0 | Planned; basic product detail API exists, rich product page not complete |
-| F03 | Persistent basket and checkout | P0 | Core slice implemented; account persistence and advanced checkout rules remain |
-| F04 | Delivery/pickup/order tracking | P1 | Planned |
-| F05 | Accounts/favourites/repeat orders | P1 | Planned |
+| F01 | Intelligent search and discovery | P0 | Core slice implemented; frontend API search, autocomplete, category/price/stock filters, sorting, and 2D/3D shared search added; advanced filters and analytics remain |
+| F02 | Rich product pages | P0 | Basic shared product detail page implemented; rich media, variants, verified reviews, and unit pricing remain |
+| F03 | Persistent basket and checkout | P0 | Core slice implemented; checkout captures phone, name/address when not anonymous, optional email/instructions, and saves details with order; accounts and advanced checkout rules remain |
+| F04 | Delivery/pickup/order tracking | P1 | Partial: checkout persists delivery details and `/orders` shows persisted order/payment state; pickup slots, delivery zones, staff transitions, and notifications remain |
+| F05 | Accounts/favourites/repeat orders | P1 | Partial: guest-session order history and reorder flow implemented; secure accounts, favourites, and cross-device history remain |
 | F06 | Navigable 3D supermarket | P1 | Core slice implemented; full walk-through and optimization remain |
 | F07 | Search-to-shelf | P0 | Core slice implemented; camera navigation and route map remain |
 | F08 | Direct 3D interaction | P0 | Core slice implemented; automated interaction coverage remains |
@@ -381,6 +381,26 @@ Use this tracker as a planning aid, not proof of implementation. Update each sta
 | F27 | Monitoring and recovery | P1 | Health endpoint and CI baseline implemented; production observability remains |
 | F28 | Tax, privacy, and auditability | P1 | Basic audit events exist; full policies and tax configuration remain |
 | F29-F35 | SaaS, integrations, analytics, PWA | P2-P3 | Planned or partial; inspect implementation per feature |
+
+
+### Second implementation batch: customer journey and operations foundations
+
+The next ten roadmap areas targeted for delivery are **F02, F04, F05, F09, F14, F15, F16, F17, F18, and F19**. This is a batch scope, not a claim that all ten are complete. Current delivered slices from this batch are:
+
+- **F02:** Shared product detail page at `/products/[productId]`, using the canonical product API and shared basket.
+- **F04:** Checkout delivery/contact capture and a customer `/orders` page showing saved order lines, delivery details, and payment/order status. Delivery scheduling, pickup, and staff-controlled fulfilment states remain open.
+- **F05:** Guest order history and reorder-from-history. Secure customer accounts, saved addresses, favourites, and cross-device access remain open.
+
+F09 and F14-F19 remain open until their data models, backend authorization, user workflows, and automated tests are implemented. Do not mark them complete from planning or UI-only work.
+
+#### Checkout contact and privacy rules
+
+- A phone number is required for every new order, including anonymous checkout.
+- Non-anonymous checkout requires a customer name and delivery address; email and delivery instructions are optional.
+- Anonymous checkout deliberately stores no name/address/email unless supplied through a future explicitly consented flow; the phone remains stored for order contact.
+- Order detail lookup is scoped to the originating shopping session. The current guest history is browser-session based, not an authenticated account.
+- Sandbox payment controls are simulations only and do not charge real money.
+- The additive database migration is `apps/api/migrations/versions/0002_order_customer_details.py`; startup also safely adds missing columns for existing development databases.
 
 ## 10. First implementation task template
 
