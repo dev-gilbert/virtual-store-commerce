@@ -700,12 +700,34 @@ def get_branch_inventory(branch_id:str,db:Session=Depends(get_db)):
  return {"items":[{"product_id":r.product_id,"name":db.get(Product,r.product_id).name,"quantity":r.quantity} for r in rows]}
 @app.post("/api/v1/admin/staff",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
 def add_staff(payload:StaffInput,db:Session=Depends(get_db)):
- s=StaffMember(name=payload.name,email=payload.email.lower(),role=payload.role)
- db.add(s)
- try:db.commit()
+ email=payload.email.strip().lower()
+ if db.scalar(select(Account.id).where(Account.email==email)):raise HTTPException(409,"An account with this email already exists")
+ store_id=tenant_scope.get()
+ if not store_id or store_id=="__public__":raise HTTPException(403,"Staff accounts must belong to an authenticated store tenant")
+ store=db.get(StoreTenant,store_id)
+ if not store or store.status!="approved":raise HTTPException(403,"Store must be approved before inviting staff")
+ role="store_manager" if payload.role=="manager" else "store_staff"
+ setup_token=secrets.token_urlsafe(32)
+ account=Account(name=payload.name.strip(),email=email,password_hash=password_digest(secrets.token_urlsafe(32)),role=role,store_name=store.name,store_id=store.id,reset_token_hash=hashlib.sha256(setup_token.encode()).hexdigest(),reset_expires_at=datetime.now(timezone.utc).replace(tzinfo=None)+__import__("datetime").timedelta(hours=24))
+ s=StaffMember(name=payload.name.strip(),email=email,role=payload.role)
+ db.add_all([account,s])
+ try:db.flush();audit(db,"STAFF_MEMBER_CREATED","staff_member",s.id,str({"account_id":account.id,"role":role}));db.commit()
  except IntegrityError:db.rollback();raise HTTPException(409,"Staff email already exists")
- db.refresh(s);audit(db,"STAFF_MEMBER_CREATED","staff_member",s.id);db.commit()
- return {"id":s.id,"name":s.name,"email":s.email,"role":s.role,"active":s.active}
+ invited=False
+ smtp_host=os.getenv("SMTP_HOST");smtp_from=os.getenv("SMTP_FROM")
+ if smtp_host and smtp_from:
+  frontend=os.getenv("FRONTEND_BASE_URL","http://localhost:3000").rstrip("/")
+  message=EmailMessage();message["Subject"]="Set up your Virtual Store staff account";message["From"]=smtp_from;message["To"]=email
+  message.set_content("Your store invited you to Virtual Store Commerce. Set your password within 24 hours: "+frontend+"/reset-password?token="+setup_token)
+  with smtplib.SMTP(smtp_host,int(os.getenv("SMTP_PORT","587")),timeout=10) as server:
+   if os.getenv("SMTP_STARTTLS","true").lower()=="true":server.starttls()
+   if os.getenv("SMTP_USERNAME"):server.login(os.getenv("SMTP_USERNAME"),os.getenv("SMTP_PASSWORD",""))
+   server.send_message(message)
+  invited=True
+ db.refresh(s)
+ result={"id":s.id,"name":s.name,"email":s.email,"role":s.role,"account_role":role,"active":s.active,"invite_sent":invited}
+ if not invited and os.getenv("APP_ENV","development").lower()!="production":result["development_setup_token"]=setup_token
+ return result
 @app.get("/api/v1/admin/staff",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
 def list_staff(db:Session=Depends(get_db)):
  return {"items":[{"id":s.id,"name":s.name,"email":s.email,"role":s.role,"active":s.active} for s in db.scalars(select(StaffMember).order_by(StaffMember.name))]}
