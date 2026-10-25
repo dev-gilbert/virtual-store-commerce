@@ -188,7 +188,9 @@ class Promotion(Base):
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
  code:Mapped[str]=mapped_column(String(40),unique=True,index=True); discount_percent:Mapped[int]=mapped_column(Integer)
  active:Mapped[bool]=mapped_column(Boolean,default=True); min_subtotal:Mapped[Decimal]=mapped_column(Numeric(12,2),default=0)
- starts_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True); ends_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True); tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
+ starts_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True); ends_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
+ usage_limit:Mapped[int|None]=mapped_column(Integer,nullable=True); usage_count:Mapped[int]=mapped_column(Integer,default=0)
+ tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 class Supplier(Base):
  __tablename__="suppliers"
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=lambda:str(uuid.uuid4()))
@@ -333,6 +335,15 @@ def ensure_product_rich_columns():
  with engine.begin() as connection:
   for name,definition in columns.items():
    if name not in existing: connection.execute(text(f"ALTER TABLE products ADD COLUMN {name} {definition}"))
+def ensure_promotion_usage_columns():
+ from sqlalchemy import inspect, text
+ inspector=inspect(engine)
+ if not inspector.has_table("promotions"):return
+ existing={column["name"] for column in inspector.get_columns("promotions")}
+ with engine.begin() as connection:
+  if "usage_limit" not in existing:connection.execute(text("ALTER TABLE promotions ADD COLUMN usage_limit INTEGER"))
+  if "usage_count" not in existing:connection.execute(text("ALTER TABLE promotions ADD COLUMN usage_count INTEGER NOT NULL DEFAULT 0"))
+
 def ensure_account_store_columns():
  from sqlalchemy import inspect, text
  inspector=inspect(engine)
@@ -361,6 +372,7 @@ async def lifespan(_):
  ensure_account_store_columns()
  ensure_product_rich_columns()
  ensure_tenant_columns()
+ ensure_promotion_usage_columns()
  with SessionLocal() as db:
   seed_data(db)
   seed_platform_admin(db)
