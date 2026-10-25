@@ -14,7 +14,7 @@ function Form({mode}:{mode:Mode}){
    const endpoint=mode==="login"?"/api/v1/auth/login":"/api/v1/auth/register";
    const body=mode==="login"?{email,password}:{name,email,password,store_name:storeName||null};
    const result=await api<{token:string;account:{role:string}}>(endpoint,{method:"POST",body:JSON.stringify(body)});
-   localStorage.setItem("virtual-store-auth-token",result.token);localStorage.setItem("virtual-store-account-role",result.account.role);
+   localStorage.setItem("virtual-store-account-role",result.account.role);localStorage.removeItem("virtual-store-auth-token");
    router.push(result.account.role==="platform_admin"?"/admin":"/mystore");router.refresh();
   }else if(mode==="forgot"){
    const result=await api<{message:string;development_reset_token?:string}>("/api/v1/auth/forgot-password",{method:"POST",body:JSON.stringify({email})});
