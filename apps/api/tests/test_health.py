@@ -57,3 +57,19 @@ def test_cancelling_unpaid_order_releases_reserved_stock(client):
     assert cancelled.status_code==200 and cancelled.json()["status"]=="cancelled"
     restored=client.get(f"/api/v1/products/{product['id']}").json()["stock_quantity"]
     assert restored==original_stock
+
+def test_admin_can_create_drawer_and_manage_product_placements(client):
+    headers={"X-Admin-Key":"local-dev-admin-change-me"}
+    product=client.get("/api/v1/products").json()["items"][0]
+    created=client.post("/api/v1/admin/fixtures",headers=headers,json={
+      "code":f"DRAWER-{uuid4().hex[:8]}","name":"Test drawer","kind":"drawer","x":2,"y":0,"z":3})
+    assert created.status_code==201
+    fixture=created.json()
+    placed=client.post(f"/api/v1/admin/fixtures/{fixture['id']}/items",headers=headers,json={
+      "product_id":product["id"],"shelf_level":0,"slot":0})
+    assert placed.status_code==201
+    layout=client.get("/api/v1/store-layout").json()
+    found=next(f for f in layout["items"] if f["id"]==fixture["id"])
+    assert found["kind"]=="drawer" and found["products"][0]["product_id"]==product["id"]
+    removed=client.delete(f"/api/v1/admin/fixtures/{fixture['id']}/items/{placed.json()['id']}",headers=headers)
+    assert removed.status_code==200 and removed.json()["removed"] is True
