@@ -308,8 +308,28 @@ async def security_middleware(request:Request,call_next):
     return JSONResponse(status_code=403,content={"detail":"CSRF token missing or invalid"})
   if not request.headers.get("authorization"):
    request.scope["headers"].append((b"authorization",("Bearer "+cookie).encode()))
- response=await call_next(request)
- return response
+ scope_token=tenant_scope.set("__public__")
+ try:
+  auth_header=request.headers.get("authorization")
+  token_value=auth_header or cookie
+  if token_value:
+   with SessionLocal() as auth_db:
+    try:account=account_from_token(token_value if token_value.startswith("Bearer ") else "Bearer "+token_value,auth_db)
+    except HTTPException:account=None
+   if account:
+    tenant_scope.set(None if account.role=="platform_admin" else (account.store_id or "__public__"))
+  elif request.headers.get("x-store-id"):
+   store_id=request.headers.get("x-store-id","")
+   with SessionLocal() as store_db:
+    store=store_db.get(StoreTenant,store_id)
+    if not store or store.status!="approved":
+     from fastapi.responses import JSONResponse
+     return JSONResponse(status_code=404,content={"detail":"Storefront not found or not approved"})
+   tenant_scope.set(store_id)
+  response=await call_next(request)
+  return response
+ finally:
+  tenant_scope.reset(scope_token)
 
 @app.get("/health",tags=["Operations"])
 def health(): return {"status":"ok","service":"virtual-store-commerce-api","database":"connected"}
