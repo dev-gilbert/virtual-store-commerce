@@ -1,4 +1,4 @@
 import type { Metadata } from "next";
-import AdminDashboard from "@/components/admin/AdminDashboard";
+import StoreGate from "@/components/admin/StoreGate";
 export const metadata:Metadata={title:"My Store | Virtual Store Commerce"};
-export default function MyStorePage(){return <AdminDashboard/>}
+export default function MyStorePage(){return <StoreGate/>}
