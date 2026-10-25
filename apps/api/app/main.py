@@ -624,7 +624,8 @@ def notify_order_status(order:Order):
    server.send_message(message)
  except Exception:logging.exception("Order status email failed for order %s",order.id)
 def require_admin(request:Request,x_admin_key:str|None=Header(default=None,alias="X-Admin-Key"),authorization:str|None=Header(default=None),session_cookie:str|None=Cookie(default=None,alias="vsc_session"),csrf_cookie:str|None=Cookie(default=None,alias="vsc_csrf"),csrf_header:str|None=Header(default=None,alias="X-CSRF-Token"),db:Session=Depends(get_db)):
- if os.getenv("APP_ENV","development").lower()!="production" and x_admin_key and hmac.compare_digest(x_admin_key,os.getenv("ADMIN_API_KEY","local-dev-admin-change-me")): return True
+ configured_admin_key=os.getenv("ADMIN_API_KEY")
+ if os.getenv("APP_ENV","development").lower()=="development" and configured_admin_key and x_admin_key and hmac.compare_digest(x_admin_key,configured_admin_key): return True
  if (authorization and authorization.startswith("Bearer ")) or session_cookie:
   if not authorization and request.method not in ("GET","HEAD","OPTIONS"):
    if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie,csrf_header): raise HTTPException(403,"CSRF token missing or invalid")
