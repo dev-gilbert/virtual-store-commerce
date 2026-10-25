@@ -80,7 +80,7 @@ class ProductOut(BaseModel):
 class FixtureCreate(BaseModel):
  code:str=Field(min_length=2,max_length=80,pattern=r"^[A-Za-z0-9_-]+$")
  name:str=Field(min_length=2,max_length=160)
- kind:str=Field(default="shelf",pattern=r"^(shelf|drawer|table|display)$")
+ kind:str=Field(default="shelf",pattern=r"^(shelf|drawer|table|display|refrigerator|checkout)$")
  x:float=Field(default=0,ge=-20,le=20); y:float=Field(default=0,ge=0,le=5); z:float=Field(default=0,ge=-20,le=20)
 class PlacementCreate(BaseModel):
  product_id:str
@@ -145,7 +145,7 @@ def layout(db:Session=Depends(get_db)):
  for f in fs:
   ps=list(db.scalars(select(ProductPlacement).where(ProductPlacement.fixture_id==f.id)))
   out.append({"id":f.id,"code":f.code,"name":f.name,"kind":f.kind,"position":[float(f.x),float(f.y),float(f.z)],
-   "products":[{"placement_id":p.id,"product_id":p.product.id,"sku":p.product.sku,"name":p.product.name,"price":str(p.product.price),"color":p.product.color,"stock_quantity":p.product.stock_quantity,"shelf_level":p.shelf_level,"slot":p.slot} for p in ps if p.product.active]})
+   "products":[{"placement_id":p.id,"product_id":p.product.id,"sku":p.product.sku,"name":p.product.name,"price":str(p.product.price),"color":p.product.color,"image_url":p.product.image_url,"stock_quantity":p.product.stock_quantity,"shelf_level":p.shelf_level,"slot":p.slot} for p in ps if p.product.active]})
  return {"items":out,"total":len(out)}
 @app.get("/api/v1/cart",tags=["Cart"])
 def get_cart(session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)): return cart_payload(db,session_id)
