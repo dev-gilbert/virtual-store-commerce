@@ -1033,3 +1033,10 @@ def stock_movements(product_id:str,limit:int=Query(default=100,ge=1,le=500),db:S
  if not product:raise HTTPException(404,"Product not found")
  rows=list(db.scalars(select(StockMovement).where(StockMovement.product_id==product_id).order_by(StockMovement.created_at.desc()).limit(limit)))
  return {"items":[{"id":m.id,"quantity_delta":m.quantity_delta,"reason":m.reason,"reference":m.reference,"created_at":m.created_at.isoformat()} for m in rows],"total":len(rows)}
+
+@app.get("/api/v1/admin/orders",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def admin_list_orders(status_filter:str|None=Query(default=None,alias="status"),limit:int=Query(default=100,ge=1,le=500),db:Session=Depends(get_db)):
+ query=select(Order).order_by(Order.created_at.desc())
+ if status_filter:query=query.where(Order.status==status_filter)
+ rows=list(db.scalars(query.limit(limit)))
+ return {"items":[order_payload(order) for order in rows],"total":len(rows)}
