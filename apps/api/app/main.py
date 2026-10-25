@@ -1,8 +1,9 @@
 from __future__ import annotations
-import os, uuid, hmac, hashlib, secrets, base64
+import os, uuid, hmac, hashlib, secrets, base64, time, smtplib
 from decimal import InvalidOperation
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from email.message import EmailMessage
 from decimal import Decimal
 from typing import Generator
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
@@ -252,6 +253,30 @@ async def lifespan(_):
  yield
 app=FastAPI(title="Virtual Store Commerce API",version="0.2.0",description="Shared catalogue, 3D layout, cart, orders and sandbox payments.",lifespan=lifespan)
 app.add_middleware(CORSMiddleware,allow_origins=os.getenv("CORS_ORIGINS","http://localhost:3000").split(","),allow_credentials=True,allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],allow_headers=["Content-Type","Authorization","Idempotency-Key","X-Admin-Key"])
+_auth_attempts={}
+@app.middleware("http")
+async def security_middleware(request:Request,call_next):
+ path=request.url.path
+ if path in ("/api/v1/auth/login","/api/v1/auth/register","/api/v1/auth/forgot-password","/api/v1/auth/reset-password"):
+  now=time.time();key=(request.client.host if request.client else "unknown",path)
+  recent=[stamp for stamp in _auth_attempts.get(key,[]) if now-stamp<300]
+  if len(recent)>=12:
+   from fastapi.responses import JSONResponse
+   return JSONResponse(status_code=429,content={"detail":"Too many authentication attempts. Please try again later."},headers={"Retry-After":"300"})
+  recent.append(now);_auth_attempts[key]=recent
+ cookie=request.cookies.get("vsc_session")
+ csrf=request.cookies.get("vsc_csrf")
+ if cookie:
+  if request.method not in ("GET","HEAD","OPTIONS"):
+   header=request.headers.get("x-csrf-token")
+   if not csrf or not header or not hmac.compare_digest(csrf,header):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=403,content={"detail":"CSRF token missing or invalid"})
+  if not request.headers.get("authorization"):
+   request.scope["headers"].append((b"authorization",("Bearer "+cookie).encode()))
+ response=await call_next(request)
+ return response
+
 @app.get("/health",tags=["Operations"])
 def health(): return {"status":"ok","service":"virtual-store-commerce-api","database":"connected"}
 @app.get("/api/v1/products",tags=["Products"])
@@ -648,7 +673,10 @@ def register_account(payload:RegisterInput,response:Response,db:Session=Depends(
   db.commit()
  except IntegrityError:db.rollback();raise HTTPException(409,"An account with this email already exists")
  db.refresh(account);audit(db,"ACCOUNT_REGISTERED","account",account.id);db.commit()
- return {"token":issue_account_token(account),"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name,"store_id":account.store_id,"store_status":db.get(StoreTenant,account.store_id).status if account.store_id else None}}
+ token=issue_account_token(account);csrf=secrets.token_urlsafe(32);production=os.getenv("APP_ENV","development").lower()=="production"
+ response.set_cookie("vsc_session",token,httponly=True,secure=production,samesite="lax",max_age=43200,path="/")
+ response.set_cookie("vsc_csrf",csrf,httponly=False,secure=production,samesite="lax",max_age=43200,path="/")
+ return {"token":token,"csrf_token":csrf,"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name,"store_id":account.store_id,"store_status":db.get(StoreTenant,account.store_id).status if account.store_id else None}}
 @app.post("/api/v1/auth/login",tags=["Authentication"])
 def login_account(payload:LoginInput,response:Response,db:Session=Depends(get_db)):
  account=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
@@ -661,8 +689,8 @@ def login_account(payload:LoginInput,response:Response,db:Session=Depends(get_db
  response.set_cookie("vsc_csrf",csrf,httponly=False,secure=production,samesite="lax",max_age=43200,path="/")
  return {"token":token,"csrf_token":csrf,"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name,"store_id":account.store_id,"store_status":db.get(StoreTenant,account.store_id).status if account.store_id else None}}
 @app.get("/api/v1/auth/me",tags=["Authentication"])
-def account_me(authorization:str|None=Header(default=None),db:Session=Depends(get_db)):
- a=account_from_token(authorization,db)
+def account_me(authorization:str|None=Header(default=None),session_cookie:str|None=Cookie(default=None,alias="vsc_session"),db:Session=Depends(get_db)):
+ a=account_from_token(authorization or ("Bearer "+session_cookie if session_cookie else None),db)
  tenant=db.get(StoreTenant,a.store_id) if a.store_id else None
  return {"id":a.id,"name":a.name,"email":a.email,"role":a.role,"store_name":a.store_name,"store_id":a.store_id,"store_status":tenant.status if tenant else None}
 @app.post("/api/v1/auth/forgot-password",tags=["Authentication"])
@@ -671,7 +699,16 @@ def forgot_password(payload:ForgotPasswordInput,db:Session=Depends(get_db)):
  response={"message":"If an account exists for that email, password reset instructions will be sent."}
  if a:
   token=secrets.token_urlsafe(32);a.reset_token_hash=hashlib.sha256(token.encode()).hexdigest();a.reset_expires_at=datetime.now(timezone.utc).replace(tzinfo=None)+__import__("datetime").timedelta(minutes=30);db.commit()
-  if os.getenv("APP_ENV","development").lower()!="production":response["development_reset_token"]=token
+  smtp_host=os.getenv("SMTP_HOST");smtp_from=os.getenv("SMTP_FROM");frontend=os.getenv("FRONTEND_BASE_URL","http://localhost:3000").rstrip("/")
+  if smtp_host and smtp_from:
+   message=EmailMessage();message["Subject"]="Reset your Virtual Store Commerce password";message["From"]=smtp_from;message["To"]=a.email
+   message.set_content("Use this one-time link within 30 minutes to reset your password: "+frontend+"/reset-password?token="+token+"\nIf you did not request this, you can ignore this email.")
+   with smtplib.SMTP(smtp_host,int(os.getenv("SMTP_PORT","587")),timeout=10) as server:
+    if os.getenv("SMTP_STARTTLS","true").lower()=="true":server.starttls()
+    if os.getenv("SMTP_USERNAME"):server.login(os.getenv("SMTP_USERNAME"),os.getenv("SMTP_PASSWORD",""))
+    server.send_message(message)
+  elif os.getenv("APP_ENV","development").lower()!="production":
+   response["development_reset_token"]=token
  return response
 @app.post("/api/v1/auth/reset-password",tags=["Authentication"])
 def reset_password(payload:ResetPasswordInput,db:Session=Depends(get_db)):
