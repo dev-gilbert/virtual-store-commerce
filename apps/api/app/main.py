@@ -266,7 +266,7 @@ async def security_middleware(request:Request,call_next):
   recent.append(now);_auth_attempts[key]=recent
  cookie=request.cookies.get("vsc_session")
  csrf=request.cookies.get("vsc_csrf")
- if cookie and not request.headers.get("authorization"):
+ if cookie and not request.headers.get("authorization") and not path.startswith("/api/v1/auth/"):
   if request.method not in ("GET","HEAD","OPTIONS"):
    header=request.headers.get("x-csrf-token")
    if not csrf or not header or not hmac.compare_digest(csrf,header):
