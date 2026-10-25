@@ -77,6 +77,15 @@ class ProductPatch(BaseModel):
 class ProductOut(BaseModel):
  model_config=ConfigDict(from_attributes=True)
  id:str; sku:str; name:str; description:str; category:str; price:Decimal; currency:str; stock_quantity:int; image_url:str|None; color:str; active:bool
+class FixtureCreate(BaseModel):
+ code:str=Field(min_length=2,max_length=80,pattern=r"^[A-Za-z0-9_-]+$")
+ name:str=Field(min_length=2,max_length=160)
+ kind:str=Field(default="shelf",pattern=r"^(shelf|drawer|table|display)$")
+ x:float=Field(default=0,ge=-20,le=20); y:float=Field(default=0,ge=0,le=5); z:float=Field(default=0,ge=-20,le=20)
+class PlacementCreate(BaseModel):
+ product_id:str
+ shelf_level:int=Field(default=0,ge=0,le=5)
+ slot:int=Field(default=0,ge=0,le=20)
 class CartItemInput(BaseModel):
  product_id:str; quantity:int=Field(default=1,ge=1,le=99)
 class CheckoutInput(BaseModel): session_id:str=Field(min_length=8,max_length=100)
@@ -226,6 +235,32 @@ def update_product(product_id:str,payload:ProductPatch,db:Session=Depends(get_db
  changes=payload.model_dump(exclude_unset=True)
  for field,value in changes.items(): setattr(p,field,value)
  audit(db,"PRODUCT_UPDATED","product",p.id,str(changes)); db.commit(); db.refresh(p); return p
+@app.post("/api/v1/admin/fixtures",status_code=status.HTTP_201_CREATED,tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def create_fixture(payload:FixtureCreate,db:Session=Depends(get_db)):
+ f=Fixture(**payload.model_dump()); db.add(f)
+ try:
+  db.flush(); audit(db,"FIXTURE_CREATED","fixture",f.id,f'{{"code":"{f.code}","kind":"{f.kind}"}}'); db.commit(); db.refresh(f)
+ except IntegrityError:
+  db.rollback(); raise HTTPException(409,"That fixture code already exists")
+ return {"id":f.id,"code":f.code,"name":f.name,"kind":f.kind,"position":[float(f.x),float(f.y),float(f.z)],"products":[]}
+@app.post("/api/v1/admin/fixtures/{fixture_id}/items",status_code=status.HTTP_201_CREATED,tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def place_fixture_item(fixture_id:str,payload:PlacementCreate,db:Session=Depends(get_db)):
+ f=db.get(Fixture,fixture_id); p=db.get(Product,payload.product_id)
+ if not f: raise HTTPException(404,"Fixture not found")
+ if not p or not p.active: raise HTTPException(404,"Active product not found")
+ row=ProductPlacement(product_id=p.id,fixture_id=f.id,shelf_level=payload.shelf_level,slot=payload.slot)
+ db.add(row)
+ try:
+  db.flush(); audit(db,"PRODUCT_PLACED_IN_FIXTURE","placement",row.id,f'{{"fixture_id":"{f.id}","product_id":"{p.id}","shelf_level":{row.shelf_level},"slot":{row.slot}}}'); db.commit(); db.refresh(row)
+ except IntegrityError:
+  db.rollback(); raise HTTPException(409,"That product already occupies this exact fixture slot")
+ return {"id":row.id,"fixture_id":f.id,"product_id":p.id,"shelf_level":row.shelf_level,"slot":row.slot}
+@app.delete("/api/v1/admin/fixtures/{fixture_id}/items/{placement_id}",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
+def remove_fixture_item(fixture_id:str,placement_id:str,db:Session=Depends(get_db)):
+ row=db.get(ProductPlacement,placement_id)
+ if not row or row.fixture_id!=fixture_id: raise HTTPException(404,"Placement not found")
+ audit(db,"PRODUCT_REMOVED_FROM_FIXTURE","placement",row.id,f'{{"fixture_id":"{fixture_id}","product_id":"{row.product_id}"}}'); db.delete(row); db.commit()
+ return {"removed":True,"placement_id":placement_id}
 @app.get("/api/v1/admin/summary",tags=["Retailer Admin"],dependencies=[Depends(require_admin)])
 def admin_summary(db:Session=Depends(get_db)):
  ps=list(db.scalars(select(Product))); orders=list(db.scalars(select(Order)))
