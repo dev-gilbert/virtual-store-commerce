@@ -189,7 +189,6 @@ class Promotion(Base):
  code:Mapped[str]=mapped_column(String(40),unique=True,index=True); discount_percent:Mapped[int]=mapped_column(Integer)
  active:Mapped[bool]=mapped_column(Boolean,default=True); min_subtotal:Mapped[Decimal]=mapped_column(Numeric(12,2),default=0); usage_limit:Mapped[int|None]=mapped_column(Integer,nullable=True); usage_count:Mapped[int]=mapped_column(Integer,default=0)
  starts_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True); ends_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
- usage_limit:Mapped[int|None]=mapped_column(Integer,nullable=True); usage_count:Mapped[int]=mapped_column(Integer,default=0)
  tenant_id:Mapped[str|None]=mapped_column(String(36),nullable=True,index=True)
 class Supplier(Base):
  __tablename__="suppliers"
