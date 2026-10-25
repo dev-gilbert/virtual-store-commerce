@@ -184,7 +184,9 @@ def ensure_order_customer_columns():
 async def lifespan(_):
  Base.metadata.create_all(bind=engine)
  ensure_order_customer_columns()
- with SessionLocal() as db:\n  seed_data(db)\n  seed_platform_admin(db)
+ with SessionLocal() as db:
+  seed_data(db)
+  seed_platform_admin(db)
  yield
 app=FastAPI(title="Virtual Store Commerce API",version="0.2.0",description="Shared catalogue, 3D layout, cart, orders and sandbox payments.",lifespan=lifespan)
 app.add_middleware(CORSMiddleware,allow_origins=os.getenv("CORS_ORIGINS","http://localhost:3000").split(","),allow_credentials=True,allow_methods=["GET","POST","PATCH","DELETE","OPTIONS"],allow_headers=["Content-Type","Authorization","Idempotency-Key","X-Admin-Key"])
