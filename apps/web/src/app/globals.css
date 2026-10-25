@@ -205,3 +205,28 @@
 .platform-actions button:disabled{opacity:.5;cursor:wait}
 .platform-security-note{margin-top:24px;padding-top:16px;border-top:1px solid #e5e8e1;color:#777e73;font-size:13px}
 @media(max-width:760px){.platform-record{align-items:flex-start;flex-wrap:wrap}.platform-record-main{flex-basis:65%}.platform-actions{width:100%;justify-content:flex-start}.platform-table-toolbar{align-items:flex-start;flex-direction:column}}
+
+
+/* Rich canonical product details */
+.product-gallery-controls{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:12px}
+.product-gallery-controls button{border:1px solid #d8ddd4;background:#fffefa;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:20px}
+.product-gallery-controls span{font-size:12px;color:#596258}
+.product-detail-copy .button-secondary{border:1px solid #d8ddd4;background:#fffefa;border-radius:10px;padding:12px 15px;color:#24392d;cursor:pointer}
+.product-detail-price small{font-size:13px;font-weight:500;color:#6d7771}
+.product-rich-details{margin:34px 0;padding:26px;background:#fffefa;border:1px solid #e1e3dc;border-radius:16px}
+.product-rich-details h2{margin:0 0 18px;font-size:23px;letter-spacing:-.6px}
+.product-rich-details h2 span{font-size:14px;color:#778077;font-weight:400}
+.product-rich-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.product-rich-grid>div{display:flex;flex-direction:column;gap:5px;padding:12px 0;border-bottom:1px solid #eceee8}
+.product-rich-grid span,.product-related-grid small{color:#6d7771;font-size:13px}
+.product-rich-grid strong{font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.product-review-form{display:grid;gap:12px;max-width:620px;padding:16px 0 22px}
+.product-review-form label{display:grid;gap:6px;font-size:13px;color:#566258}
+.product-review-form input,.product-review-form textarea,.product-review-form select{width:100%;border:1px solid #d8ddd4;background:#fff;border-radius:8px;padding:11px;font:inherit;color:#1c2421}
+.product-review-form textarea{min-height:90px;resize:vertical}
+.product-review{border-top:1px solid #e8ebe4;padding:14px 0}
+.product-review strong{font-size:14px}.product-review p{margin:7px 0;color:#525e54}.product-review small{font-size:12px;color:#778077}
+.product-related-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.product-related-grid a{display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid #e1e3dc;border-radius:12px;background:#fff}
+.product-related-grid a strong{font-size:14px}.product-related-grid a span{font-weight:700}
+@media(max-width:700px){.product-rich-grid{grid-template-columns:1fr}.product-related-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.product-rich-details{padding:18px}}
