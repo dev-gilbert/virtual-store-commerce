@@ -9,7 +9,7 @@ type Event={id:string;event_type:string;entity_type:string;entity_id:string;deta
 export default function PlatformDashboard(){
  const [summary,setSummary]=useState<Summary|null>(null),[stores,setStores]=useState<Store[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[events,setEvents]=useState<Event[]>([]),[tab,setTab]=useState("overview"),[filter,setFilter]=useState("pending"),[error,setError]=useState(""),[busy,setBusy]=useState("");
  const load=useCallback(async()=>{try{const s=await api<Summary>("/api/v1/platform/summary");setSummary(s);const results=await Promise.all([api<{items:Store[]}>("/api/v1/platform/stores"),api<{items:Account[]}>("/api/v1/platform/accounts"),api<{items:Event[]}>("/api/v1/platform/audit-events?limit=100")]);setStores(results[0].items);setAccounts(results[1].items);setEvents(results[2].items);setError("")}catch(e){setError((e as Error).message)}},[]);
- useEffect(()=>{void load()},[load]);
+ useEffect(()=>{Promise.resolve().then(()=>load())},[load]);
  async function review(s:Store,status:string){setBusy(s.id);try{await api("/api/v1/platform/stores/"+s.id+"/review",{method:"POST",body:JSON.stringify({status,notes:s.notes||""})});await load()}catch(e){setError((e as Error).message)}finally{setBusy("")}}
  async function changeAccount(a:Account,patch:object){setBusy(a.id);try{await api("/api/v1/platform/accounts/"+a.id,{method:"PATCH",body:JSON.stringify(patch)});await load()}catch(e){setError((e as Error).message)}finally{setBusy("")}}
  const pending=stores.filter(s=>s.status==="pending").length;
