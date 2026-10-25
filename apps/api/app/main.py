@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, uuid, hmac, hashlib, secrets, base64, time, smtplib, contextvars, json
+import os, uuid, hmac, hashlib, secrets, base64, time, smtplib, contextvars, json, io
 from decimal import InvalidOperation
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -7,6 +7,7 @@ from email.message import EmailMessage
 from decimal import Decimal
 from typing import Generator
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, create_engine, select, func, event
@@ -1137,3 +1138,30 @@ def rollback_layout_version(version_id:str,db:Session=Depends(get_db)):
  version=db.get(StoreLayoutVersion,version_id)
  if not version:raise HTTPException(404,"Layout version not found")
  return apply_layout_version(version,db)
+
+@app.get("/api/v1/orders/{order_id}/receipt.pdf",tags=["Orders"])
+def order_receipt_pdf(order_id:str,session_id:str=Query(min_length=8,max_length=100),db:Session=Depends(get_db)):
+ order=db.get(Order,order_id)
+ if not order or order.session_id!=session_id:raise HTTPException(404,"Order not found")
+ from reportlab.lib import colors
+ from reportlab.lib.pagesizes import A4
+ from reportlab.lib.styles import getSampleStyleSheet
+ from reportlab.lib.units import mm
+ from reportlab.platypus import SimpleDocTemplate,Paragraph,Spacer,Table,TableStyle
+ buffer=io.BytesIO();document=SimpleDocTemplate(buffer,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=18*mm,bottomMargin=18*mm)
+ styles=getSampleStyleSheet();story=[Paragraph("VIRTUAL STORE COMMERCE",styles["Title"]),Paragraph("Purchase receipt · VSC-"+order.id[:8].upper(),styles["Heading2"]),Spacer(1,8)]
+ story.append(Paragraph("Issued: "+order.created_at.strftime("%Y-%m-%d %H:%M UTC"),styles["Normal"]))
+ story.append(Paragraph("Customer: "+(order.customer_name or "Guest")+" · Phone: "+order.customer_phone,styles["Normal"]))
+ if order.delivery_address:story.append(Paragraph("Delivery address: "+order.delivery_address,styles["Normal"]))
+ story.append(Paragraph("Order status: "+order.status.replace("_"," ").title()+" · Payment: "+order.payment_status.title(),styles["Normal"]))
+ story.append(Spacer(1,12))
+ rows=[["SKU","Item","Qty","Unit price","Line total"]]
+ for item in order.items:rows.append([item.sku,item.product_name,str(item.quantity),f"{item.unit_price:,.0f} RWF",f"{item.unit_price*item.quantity:,.0f} RWF"])
+ table=Table(rows,colWidths=[25*mm,72*mm,12*mm,32*mm,32*mm],repeatRows=1)
+ table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#234e3e")),("TEXTCOLOR",(0,0),(-1,0),colors.white),("GRID",(0,0),(-1,-1),0.4,colors.HexColor("#d8ddd4")),("VALIGN",(0,0),(-1,-1),"TOP"),("FONTSIZE",(0,0),(-1,-1),8),("BOTTOMPADDING",(0,0),(-1,-1),7),("TOPPADDING",(0,0),(-1,-1),7)]))
+ story.append(table);story.append(Spacer(1,14))
+ for label,value in [("Subtotal",order.subtotal),("Discount", -order.discount_amount),("Delivery fee",order.delivery_fee),("TOTAL",order.total)]:
+  story.append(Paragraph(f"<b>{label}: {value:,.0f} RWF</b>",styles["Normal"]))
+ story.append(Spacer(1,10));story.append(Paragraph("Payment processing is recorded by the configured store payment workflow. This receipt does not independently confirm settlement by an external payment provider.",styles["Italic"]))
+ document.build(story);buffer.seek(0)
+ return StreamingResponse(buffer,media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="receipt-{order.id[:8]}.pdf"'})
