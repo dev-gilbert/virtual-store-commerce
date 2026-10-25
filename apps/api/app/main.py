@@ -308,7 +308,7 @@ def products(
  if query_text:
   db.add(SearchEvent(query=query_text[:180],result_count=total))
   db.commit()
- return {"items":[ProductOut.model_validate(p).model_dump(mode="json") for p in page],"total":total,"limit":limit,"offset":offset,"alternatives":[ProductOut.model_validate(p).model_dump(mode="json") for p in (ps[:4] if total==0 else [])]}
+ return {"items":[ProductOut.model_validate(p).model_dump(mode="json") for p in page],"total":total,"limit":limit,"offset":offset,"alternatives":[ProductOut.model_validate(p).model_dump(mode="json") for p in (list(db.scalars(select(Product).where(Product.active.is_(True)).order_by(Product.popularity.desc()).limit(4))) if total==0 else [])]}
 @app.get("/api/v1/products/{product_id}",response_model=ProductOut,tags=["Products"])
 def product_detail(product_id:str,db:Session=Depends(get_db)):
  p=db.get(Product,product_id)
