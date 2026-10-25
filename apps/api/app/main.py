@@ -287,6 +287,10 @@ def ensure_order_customer_columns():
    if name not in existing: connection.execute(text(f"ALTER TABLE orders ADD COLUMN {name} {sql_type}"))
 @asynccontextmanager
 async def lifespan(_):
+ if os.getenv("APP_ENV","development").lower()=="production":
+  if not os.getenv("AUTH_SECRET") or os.getenv("AUTH_SECRET")=="dev-only-change-this-secret":raise RuntimeError("Set a strong AUTH_SECRET before production startup")
+  if not os.getenv("SMTP_HOST") or not os.getenv("SMTP_FROM"):raise RuntimeError("Configure SMTP_HOST and SMTP_FROM for production password recovery")
+  if os.getenv("CORS_ORIGINS","http://localhost:3000")=="http://localhost:3000":raise RuntimeError("Configure CORS_ORIGINS for the production storefront")
  Base.metadata.create_all(bind=engine)
  ensure_order_customer_columns()
  ensure_account_store_columns()
@@ -776,7 +780,7 @@ def register_account(payload:RegisterInput,response:Response,db:Session=Depends(
  token=issue_account_token(account);csrf=secrets.token_urlsafe(32);production=os.getenv("APP_ENV","development").lower()=="production"
  response.set_cookie("vsc_session",token,httponly=True,secure=production,samesite="lax",max_age=43200,path="/")
  response.set_cookie("vsc_csrf",csrf,httponly=False,secure=production,samesite="lax",max_age=43200,path="/")
- return {"token":token,"csrf_token":csrf,"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name,"store_id":account.store_id,"store_status":db.get(StoreTenant,account.store_id).status if account.store_id else None}}
+ return {"token":None if production else token,"csrf_token":csrf,"account":{"id":account.id,"name":account.name,"email":account.email,"role":account.role,"store_name":account.store_name,"store_id":account.store_id,"store_status":db.get(StoreTenant,account.store_id).status if account.store_id else None}}
 @app.post("/api/v1/auth/login",tags=["Authentication"])
 def login_account(payload:LoginInput,response:Response,db:Session=Depends(get_db)):
  account=db.scalar(select(Account).where(Account.email==payload.email.strip().lower()))
