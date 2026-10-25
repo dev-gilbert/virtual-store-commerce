@@ -1,10 +1,10 @@
 "use client";
-import {useCallback,useEffect,useState} from "react";
+import {use,useCallback,useEffect,useState} from "react";
 import Link from "next/link";
 import {api,getSessionId,type Cart,type Product} from "@/lib/commerce";
 const money=(v:string|number,c="RWF")=>new Intl.NumberFormat("en-RW",{style:"currency",currency:c,maximumFractionDigits:0}).format(Number(v));
 export default function ProductPage({params}:{params:Promise<{productId:string}>}){
- const [id,setId]=useState(""),[product,setProduct]=useState<Product|null>(null),[cart,setCart]=useState<Cart|null>(null),[error,setError]=useState(""),[added,setAdded]=useState(false);
+ const {productId:id}=use(params);\n const [product,setProduct]=useState<Product|null>(null),[cart,setCart]=useState<Cart|null>(null),[error,setError]=useState(""),[added,setAdded]=useState(false);
  useEffect(()=>{params.then(p=>setId(p.productId)).catch(()=>setError("Product link is invalid."))},[params]);
  const load=useCallback(async()=>{if(!id)return;try{const [p,c]=await Promise.all([api<Product>("/api/v1/products/"+id),api<Cart>("/api/v1/cart?session_id="+encodeURIComponent(getSessionId()))]);setProduct(p);setCart(c)}catch(e){setError((e as Error).message)}},[id]);
  useEffect(()=>{Promise.resolve().then(()=>load())},[load]);
