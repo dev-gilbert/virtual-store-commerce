@@ -362,21 +362,25 @@ Use this tracker as a planning aid, not proof of implementation. Update each sta
 
 | ID | Feature | Priority | Status |
 |---|---|---:|---|
-| F01 | Intelligent search and discovery | P0 | Verify repository |
-| F02 | Rich product pages | P0 | Verify repository |
-| F03 | Persistent basket and checkout | P0 | Verify repository |
-| F04 | Delivery/pickup/order tracking | P1 | Verify repository |
-| F05 | Accounts/favourites/repeat orders | P1 | Verify repository |
-| F06 | Navigable 3D supermarket | P1 | Verify repository |
-| F07 | Search-to-shelf | P0 | Partial work reported; verify repository |
-| F08 | Direct 3D interaction | P0 | Partial work reported; verify repository |
-| F09 | Store map and shopping route | P2 | Verify repository |
-| F10 | Visual store builder | P1 | Partial work reported; verify draft/publish lifecycle |
-| F11 | Live inventory in 3D | P0 | Verify repository |
-| F12-F20 | Store operations | P1-P2 | Verify repository |
+| F01 | Intelligent search and discovery | P0 | Core slice implemented; autocomplete and advanced filters remain |
+| F02 | Rich product pages | P0 | Planned; basic product detail API exists, rich product page not complete |
+| F03 | Persistent basket and checkout | P0 | Core slice implemented; account persistence and advanced checkout rules remain |
+| F04 | Delivery/pickup/order tracking | P1 | Planned |
+| F05 | Accounts/favourites/repeat orders | P1 | Planned |
+| F06 | Navigable 3D supermarket | P1 | Core slice implemented; full walk-through and optimization remain |
+| F07 | Search-to-shelf | P0 | Core slice implemented; camera navigation and route map remain |
+| F08 | Direct 3D interaction | P0 | Core slice implemented; automated interaction coverage remains |
+| F09 | Store map and shopping route | P2 | Planned |
+| F10 | Visual store builder | P1 | Core slice implemented; versioned publishing and validation remain |
+| F11 | Live inventory in 3D | P0 | Core slice implemented; expiry-based reservations and concurrency hardening remain |
+| F12 | Inventory management | P1 | Basic stock adjustment implemented; movement ledger and receiving remain |
+| F13 | Order management | P1 | Basic order API/admin summary implemented; staff fulfilment workbench remains |
+| F14-F20 | Remaining store operations | P1-P2 | Planned or partial; inspect implementation per feature |
 | F21-F24 | AI and automation | P3 | Planned |
-| F25-F28 | Payments/security/reliability | P0-P1 | Verify repository |
-| F29-F35 | SaaS, integrations, analytics, PWA | P2-P3 | Planned |
+| F25-F26 | Real payments and account security | P0-P1 | Sandbox payments only; production provider and security work remain |
+| F27 | Monitoring and recovery | P1 | Health endpoint and CI baseline implemented; production observability remains |
+| F28 | Tax, privacy, and auditability | P1 | Basic audit events exist; full policies and tax configuration remain |
+| F29-F35 | SaaS, integrations, analytics, PWA | P2-P3 | Planned or partial; inspect implementation per feature |
 
 ## 10. First implementation task template
 
