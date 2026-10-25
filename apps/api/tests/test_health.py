@@ -73,3 +73,23 @@ def test_admin_can_create_drawer_and_manage_product_placements(client):
     assert found["kind"]=="drawer" and found["products"][0]["product_id"]==product["id"]
     removed=client.delete(f"/api/v1/admin/fixtures/{fixture['id']}/items/{placed.json()['id']}",headers=headers)
     assert removed.status_code==200 and removed.json()["removed"] is True
+
+def test_product_search_matches_sku_and_typo_tolerant_terms(client):
+    exact=client.get("/api/v1/products",params={"q":"PAN-MIL-001"})
+    typo=client.get("/api/v1/products",params={"q":"milkk"})
+    assert exact.status_code==200
+    assert any(p["sku"]=="PAN-MIL-001" for p in exact.json()["items"])
+    assert typo.status_code==200
+    assert any("milk" in p["name"].casefold() for p in typo.json()["items"])
+
+def test_product_search_filters_price_stock_and_sorts(client):
+    r=client.get("/api/v1/products",params={"min_price":"1000","max_price":"2000","in_stock":"true","sort":"price_asc","limit":100})
+    assert r.status_code==200
+    items=r.json()["items"]
+    assert items
+    assert all(1000 <= float(p["price"]) <= 2000 and p["stock_quantity"]>0 for p in items)
+    assert [float(p["price"]) for p in items] == sorted(float(p["price"]) for p in items)
+
+def test_product_search_rejects_invalid_price_range(client):
+    r=client.get("/api/v1/products",params={"min_price":"3000","max_price":"1000"})
+    assert r.status_code==422
