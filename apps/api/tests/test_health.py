@@ -124,7 +124,7 @@ def test_orders_are_scoped_to_their_shopping_session(client):
 
 def test_advanced_retailer_workflows(client):
     headers={"X-Admin-Key":"local-dev-admin-change-me"}
-    csv_text="sku,name,category,price,stock_quantity,description\\nCSV-ITEM-01,Imported Oats,Pantry,1800,12,Imported by test"
+    csv_text="sku,name,category,price,stock_quantity,description\nCSV-ITEM-01,Imported Oats,Pantry,1800,12,Imported by test"
     imported=client.post("/api/v1/admin/products/import-csv",headers=headers,json={"csv_text":csv_text})
     assert imported.status_code==200 and imported.json()["created"]==1
     product=next(p for p in client.get("/api/v1/products").json()["items"] if p["sku"]=="CSV-ITEM-01")
