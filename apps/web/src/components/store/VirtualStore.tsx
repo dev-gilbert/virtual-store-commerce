@@ -59,12 +59,23 @@ function Scene({layout,onSelect,highlightedId}:{layout:Layout;onSelect:(id:strin
   }
  },[highlightedId,layout]);
  useFrame((_,delta)=>{
-  if(!highlightedId||!controls.current)return;
-  const alpha=1-Math.exp(-delta*2.2);
-  controls.current.target.lerp(focusTarget.current,alpha);
-  const destination=focusTarget.current.clone().add(new Vector3(3.2,2.1,3.2));
-  camera.position.lerp(destination,1-Math.exp(-delta*1.5));
-  controls.current.update();
+  if(highlightedId&&controls.current){
+   const alpha=1-Math.exp(-delta*2.2);
+   controls.current.target.lerp(focusTarget.current,alpha);
+   const destination=focusTarget.current.clone().add(new Vector3(3.2,2.1,3.2));
+   camera.position.lerp(destination,1-Math.exp(-delta*1.5));
+  }
+  for(const fixture of layout.items){
+   const x=Number(fixture.position[0]??0),z=Number(fixture.position[2]??0);
+   const halfX=fixture.kind==="refrigerator"?.95:fixture.kind==="checkout"||fixture.kind==="table"||fixture.kind==="display"?1.05:1.15;
+   const halfZ=fixture.kind==="refrigerator"?.72:fixture.kind==="checkout"||fixture.kind==="table"||fixture.kind==="display"?.68:.68;
+   const dx=camera.position.x-x,dz=camera.position.z-z;
+   if(camera.position.y<2.8&&Math.abs(dx)<halfX+.28&&Math.abs(dz)<halfZ+.28){
+    if(Math.abs(dx)>Math.abs(dz))camera.position.x=x+Math.sign(dx||1)*(halfX+.28);
+    else camera.position.z=z+Math.sign(dz||1)*(halfZ+.28);
+   }
+  }
+  controls.current?.update();
  });
  return <><color attach="background" args={["#e9e7e1"]}/><ambientLight intensity={1.15}/><hemisphereLight args={["#fff","#b9b3a8",1.2]}/><directionalLight position={[6,10,5]} intensity={2.1} castShadow/><mesh rotation={[-Math.PI/2,0,0]} position={[0,-.06,0]} receiveShadow><planeGeometry args={[32,32]}/><meshStandardMaterial color="#c9c7c0"/></mesh><mesh position={[0,2.5,-5]}><boxGeometry args={[14,5,.18]}/><meshStandardMaterial color="#f4f1ea"/></mesh>{layout.items.map(f=><FixtureView key={f.id} fixture={f} onSelect={onSelect} highlightedId={highlightedId}/>)}<OrbitControls ref={controls} makeDefault target={[0,1,0]} minDistance={3} maxDistance={17} maxPolarAngle={Math.PI/2-.04} enableDamping dampingFactor={.08}/></>}
 
