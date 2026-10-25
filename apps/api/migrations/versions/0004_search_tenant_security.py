@@ -10,6 +10,7 @@ depends_on = None
 
 RICH_PRODUCT_COLUMNS = {
     "brand": sa.Column("brand", sa.String(120), nullable=False, server_default=""),
+    "low_stock_threshold": sa.Column("low_stock_threshold", sa.Integer(), nullable=False, server_default="5"),
     "synonyms": sa.Column("synonyms", sa.Text(), nullable=False, server_default=""),
     "unit": sa.Column("unit", sa.String(40), nullable=False, server_default="each"),
     "ingredients": sa.Column("ingredients", sa.Text(), nullable=False, server_default=""),
