@@ -254,3 +254,16 @@
 @media(max-width:760px){.route-product-picker{grid-template-columns:repeat(2,minmax(0,1fr))}.shopping-route-steps li{align-items:flex-start;flex-wrap:wrap}.shopping-route-steps li>div{flex-basis:calc(100% - 44px)}}
 
 .version-status-dot{display:block;flex:0 0 9px;width:9px;height:9px;border-radius:50%}
+
+
+.customer-account-page{padding-bottom:70px}
+.customer-account-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start}
+.customer-account-grid .product-rich-details{margin:0}
+.customer-record{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:13px 0;border-top:1px solid #e8ebe4}
+.customer-record>div{display:flex;flex:1;min-width:0;flex-direction:column;gap:6px}
+.customer-record strong{font-size:14px}.customer-record p{margin:0;color:#626b62;font-size:13px}.customer-record small{font-size:12px;color:#70786f;overflow-wrap:anywhere}
+.customer-record button,.customer-list-add button{border:1px solid #d8ddd4;background:#fffefa;border-radius:8px;padding:8px 10px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
+.customer-list-add{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.customer-list-add input{min-width:0;flex:1;width:80px;border:1px solid #d8ddd4;border-radius:7px;padding:8px;font:inherit;font-size:12px}
+.customer-list-add input[type=number]{max-width:70px}
+@media(max-width:760px){.customer-account-grid{grid-template-columns:1fr}}
